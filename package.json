@@ -1,0 +1,31 @@
+{
+  "name": "@polymorpha/stella",
+  "version": "1.0.0",
+  "description": "Polymorpha Stella — Knowledge/Stella library (G25/G26 single retrieval plane). Wraps embeddings, vector store, knowledge, RAG pipelines. Depends on @polymorpha/business-logic, consumed by polymorpha UI via git+https. GitHub-only, no local fallback.",
+  "main": "ts/dist/index.js",
+  "types": "ts/dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "prepare": "cd ts && npm install && npm run build",
+    "build": "cd ts && npm run build",
+    "typecheck": "cd ts && npx tsc -b --noEmit",
+    "test": "cd ts && npx vitest run --reporter=verbose",
+    "lint": "cd ts && npx eslint .",
+    "format": "npx prettier --write \"ts/src/**/*.{ts,tsx}\" \"python/**/*.{py}\"",
+    "format:check": "npx prettier --check \"ts/src/**/*.{ts,tsx}\"",
+    "generate-types": "python python/scripts/generate_types.py && cd ts && npx json2ts ../python/schema.json > src/shared/types/generated.ts"
+  },
+  "dependencies": {
+    "@polymorpha/business-logic": "git+https://github.com/Polymorpha-io/polymorpha-business-logic.git#main",
+    "@xenova/transformers": "^2.17.2",
+    "fflate": "^0.8.3"
+  },
+  "peerDependencies": {
+    "firebase": "^12.0.0"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2",
+    "vitest": "^4.1.6",
+    "jsdom": "^29.1.1"
+  }
+}

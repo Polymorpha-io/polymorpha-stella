@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "polymorpha-stella"
+version = "1.0.0"
+description = "Polymorpha Stella library — Knowledge/Stella RAG adapter over polymorpha business-logic RagProfiler"
+requires-python = ">=3.12"
+dependencies = ["polymorpha-business-logic @ git+https://github.com/Polymorpha-io/polymorpha-business-logic.git#main", "pandas", "numpy", "scikit-learn"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["polymorpha_stella*"]

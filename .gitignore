@@ -1,0 +1,10 @@
+node_modules/
+ts/dist/
+ts/.tsbuildinfo
+dist/
+.polymorpha/
+coverage/
+.pytest_cache/
+__pycache__/
+*.pyc
+.venv/
