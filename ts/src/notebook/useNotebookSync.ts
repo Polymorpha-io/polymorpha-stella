@@ -18,11 +18,43 @@ function datasetIdsFromStore(
  */
 export function useNotebookSync(workspaceId: string | null) {
   const effectiveWsId = workspaceId ?? "guest";
-  const raw = useDataStore((s) => s.raw);
-  const cleaned = useDataStore((s) => s.cleaned);
-  const appliedSteps = useDataStore((s) => s.appliedSteps);
-  const cleaningDiff = useDataStore((s) => s.cleaningDiff);
-  const results = useDataStore((s) => s.results);
+  const raw = useDataStore(
+    (s) => (s as unknown as { raw: Dataset | null }).raw,
+  ) as Dataset | null;
+  const cleaned = useDataStore(
+    (s) => (s as unknown as { cleaned: Dataset | null }).cleaned,
+  ) as Dataset | null;
+  const appliedSteps = useDataStore(
+    (s) =>
+      (
+        s as unknown as {
+          appliedSteps: Array<{
+            id: string;
+            description: string;
+            config: Record<string, unknown> & { type: string; column?: string };
+          }>;
+        }
+      ).appliedSteps,
+  ) as Array<{
+    id: string;
+    description: string;
+    config: Record<string, unknown> & { type: string; column?: string };
+  }>;
+  const cleaningDiff = useDataStore(
+    (s) =>
+      (
+        s as unknown as {
+          cleaningDiff: {
+            rowsRemoved?: number;
+            valuesImputed?: Record<string, unknown>;
+          } | null;
+        }
+      ).cleaningDiff,
+  ) as { rowsRemoved?: number; valuesImputed?: Record<string, unknown> } | null;
+  const results = useDataStore(
+    (s) =>
+      (s as unknown as { results: Record<string, unknown> | null }).results,
+  ) as Record<string, unknown> | null;
 
   const prevRawRef = useRef<Dataset | null>(null);
   const prevAppliedLen = useRef(0);

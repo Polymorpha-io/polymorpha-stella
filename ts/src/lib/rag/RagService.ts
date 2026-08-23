@@ -225,7 +225,7 @@ export async function profileDatasetStreaming(
           useRagStore
             .getState()
             .setPipelineResult(p.name, p.key, result as never, uploadId);
-          if (import.meta.env.DEV)
+          if ((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV)
             console.debug(`[rag:pandas] ${p.name} done`, result);
         } else {
           const local = p.fn(dataset) as unknown;
@@ -251,7 +251,7 @@ export async function profileDatasetStreaming(
         useRagStore
           .getState()
           .setPipelineResult(p.name, p.key, result as never, uploadId);
-        if (import.meta.env.DEV)
+        if ((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV)
           console.debug(`[rag:local] ${p.name} done`, result);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -264,7 +264,7 @@ export async function profileDatasetStreaming(
 
   if (runByDataset.get(uploadId) === runId) {
     useRagStore.getState().finishProfiling(uploadId);
-    if (import.meta.env.DEV)
+    if ((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV)
       console.debug("[rag] streaming complete", hash, uploadId);
   }
 }

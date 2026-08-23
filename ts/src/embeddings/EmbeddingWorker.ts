@@ -2,7 +2,7 @@
 // For Phase 1, this runs on main thread via same pipeline, but through central service
 // so Batch + dedup + cache is already in place. Worker porting is Phase 2 (G21).
 
-import { embed as modelEmbed, loadEmbeddingModel } from "@/stella/models";
+import { embed as modelEmbed, loadEmbeddingModel } from "@/stella/models/embeddingModel";
 
 let ready = false;
 

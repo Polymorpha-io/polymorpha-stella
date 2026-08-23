@@ -6,7 +6,6 @@
 import type { GroqModel, IStellaMessage } from "@/stella/types";
 import { DEFAULT_GROQ_MODEL } from "@/stella/types";
 import { knowledgeService } from "@/knowledge/KnowledgeService";
-import { notebookRepository } from "@/notebook/NotebookRepository";
 import { notebookContextBuilder } from "@/notebook/NotebookContextBuilder";
 import type { KnowledgeKind } from "@/knowledge/types";
 
@@ -59,13 +58,7 @@ export class BrainService {
       let contextStr = "";
       try {
         const effectiveWsId = workspaceId ?? "guest";
-        let notebookId = context?.notebookId;
-        if (!notebookId) {
-          try {
-            const nb = await notebookRepository.getByWorkspace(effectiveWsId);
-            if (nb) notebookId = nb.id;
-          } catch {}
-        }
+        const notebookId = context?.notebookId;
 
         let notebookContextStr = "";
         if (context?.activeCellId) {
@@ -112,17 +105,23 @@ export class BrainService {
         });
 
         const parts: string[] = [];
-        if (notebookContextStr) parts.push(`[notebook_context]\n${notebookContextStr}`);
+        if (notebookContextStr)
+          parts.push(`[notebook_context]\n${notebookContextStr}`);
         if (kResults.length > 0) {
           parts.push(
             kResults
               .map((r) => {
                 const prov = r.record.provenance;
                 const cell = prov.cellId ?? r.record.cellId ?? "—";
-                const datasets = prov.datasetIds?.join(", ") ?? r.record.datasetId ?? "—";
-                const sample = prov.sampleCoverage ? ` coverage=${prov.sampleCoverage}` : "";
+                const datasets =
+                  prov.datasetIds?.join(", ") ?? r.record.datasetId ?? "—";
+                const sample = prov.sampleCoverage
+                  ? ` coverage=${prov.sampleCoverage}`
+                  : "";
                 const chunk = prov.chunkId ? ` chunk=${prov.chunkId}` : "";
-                const col = prov.columns?.join(",") ? ` columns=${prov.columns?.join(",")}` : "";
+                const col = prov.columns?.join(",")
+                  ? ` columns=${prov.columns?.join(",")}`
+                  : "";
                 return `[${r.record.kind}] ${r.record.text} (cell:${cell} ws:${prov.workspaceId} dataset:${datasets}${sample}${chunk}${col})`;
               })
               .join("\n\n"),

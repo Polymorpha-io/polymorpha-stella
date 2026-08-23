@@ -57,7 +57,8 @@ export function pipelineDataset(dataset: Dataset): DatasetLevelProfile {
     for (const c of dataset.columns) {
       const v = r[c.name];
       const miss = isMissing(v);
-      if (miss) colEmptyCounts.set(c.name, (colEmptyCounts.get(c.name) ?? 0) + 1);
+      if (miss)
+        colEmptyCounts.set(c.name, (colEmptyCounts.get(c.name) ?? 0) + 1);
       else rowEmpty = false;
     }
     if (rowEmpty) emptyRows++;
@@ -105,7 +106,7 @@ export function pipelinePerColumn(dataset: Dataset): PerColumnProfile[] {
     const base: PerColumnProfile = {
       name: col.name,
       type: col.type,
-      detectedType: col.detectedType,
+      detectedType: col.detectedType ?? col.type,
       unique: uniq,
       cardinalityRatio: Math.round(cardinalityRatio * 1000) / 1000,
       missing,
@@ -129,14 +130,16 @@ export function pipelinePerColumn(dataset: Dataset): PerColumnProfile[] {
         for (const v of nums) freq.set(v, (freq.get(v) ?? 0) + 1);
         let mode: number | null = null;
         let maxC = 0;
-        for (const [k, c] of freq) if (c > maxC) { maxC = c; mode = k; }
+        for (const [k, c] of freq)
+          if (c > maxC) {
+            maxC = c;
+            mode = k;
+          }
         const q1 = nums[Math.floor(n * 0.25)];
         const q3 = nums[Math.floor(n * 0.75)];
         const iqr = q3 - q1;
         const variance =
-          n > 1
-            ? nums.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1)
-            : 0;
+          n > 1 ? nums.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1) : 0;
         const std = Math.sqrt(variance);
         const skewness =
           n >= 3 && std !== 0
@@ -169,7 +172,9 @@ export function pipelinePerColumn(dataset: Dataset): PerColumnProfile[] {
         const s = String(v);
         counts.set(s, (counts.get(s) ?? 0) + 1);
       }
-      const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+      const sorted = [...counts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5);
       const topK = sorted.map(([value, count]) => ({
         value,
         count,
@@ -186,7 +191,8 @@ export function pipelinePerColumn(dataset: Dataset): PerColumnProfile[] {
         entropy: Math.round(entropy * 100) / 100,
       });
       // mode
-      if (sorted[0]) (base as unknown as Record<string, unknown>).mode = sorted[0][0];
+      if (sorted[0])
+        (base as unknown as Record<string, unknown>).mode = sorted[0][0];
     }
     out.push(base);
   }
@@ -212,19 +218,26 @@ export function pipelineMissing(dataset: Dataset): MissingProfile {
     totalMissing += cnt;
     if (cnt > maxMissing) maxMissing = cnt;
   }
-  const avgMissingPerRow = dataset.rows.length ? totalMissing / dataset.rows.length : 0;
+  const avgMissingPerRow = dataset.rows.length
+    ? totalMissing / dataset.rows.length
+    : 0;
   const highMissingCols = perColumn
     .filter((p) => p.missingPct > 20)
     .map((p) => p.column);
 
   // missing together correlation (simple phi for top 5 high missing)
-  const missingTogether: Array<{ a: string; b: string; correlation: number }> = [];
-  const high = perColumn.filter((p) => p.missingPct > 0 && p.missingPct < 100).slice(0, 4);
+  const missingTogether: Array<{ a: string; b: string; correlation: number }> =
+    [];
+  const high = perColumn
+    .filter((p) => p.missingPct > 0 && p.missingPct < 100)
+    .slice(0, 4);
   for (let i = 0; i < high.length; i++) {
     for (let j = i + 1; j < high.length; j++) {
       const a = high[i].column;
       const b = high[j].column;
-      let both = 0, onlyA = 0, onlyB = 0;
+      let both = 0,
+        onlyA = 0,
+        onlyB = 0;
       for (const r of dataset.rows) {
         const ma = isMissing(r[a]);
         const mb = isMissing(r[b]);
@@ -233,8 +246,15 @@ export function pipelineMissing(dataset: Dataset): MissingProfile {
         else if (mb) onlyB++;
       }
       const n = dataset.rows.length;
-      const corr = n ? both / Math.sqrt((both + onlyA) * (both + onlyB) || 1) : 0;
-      if (corr > 0.3) missingTogether.push({ a, b, correlation: Math.round(corr * 100) / 100 });
+      const corr = n
+        ? both / Math.sqrt((both + onlyA) * (both + onlyB) || 1)
+        : 0;
+      if (corr > 0.3)
+        missingTogether.push({
+          a,
+          b,
+          correlation: Math.round(corr * 100) / 100,
+        });
     }
   }
 
@@ -254,7 +274,8 @@ export function pipelineMissing(dataset: Dataset): MissingProfile {
 
 // 4. duplicate
 export function pipelineDuplicate(dataset: Dataset): DuplicateProfile {
-  const rows = dataset.rows.length > 5000 ? dataset.rows.slice(0, 5000) : dataset.rows;
+  const rows =
+    dataset.rows.length > 5000 ? dataset.rows.slice(0, 5000) : dataset.rows;
   const seen = new Map<string, number>();
   for (const r of rows) {
     const k = JSON.stringify(r);
@@ -271,7 +292,10 @@ export function pipelineDuplicate(dataset: Dataset): DuplicateProfile {
     let hasMissing = false;
     for (const r of dataset.rows) {
       const v = r[c.name];
-      if (isMissing(v)) { hasMissing = true; continue; }
+      if (isMissing(v)) {
+        hasMissing = true;
+        continue;
+      }
       uniq.add(String(v));
     }
     const ratio = dataset.rows.length ? uniq.size / dataset.rows.length : 0;
@@ -280,18 +304,25 @@ export function pipelineDuplicate(dataset: Dataset): DuplicateProfile {
   }
   // composite keys: naive check for 2-col combos among high cardinality cols (limit)
   const compositeKeys: string[][] = [];
-  const highCard = dataset.columns.filter((c) => {
-    const uniq = new Set(dataset.rows.map((r) => String(r[c.name] ?? ""))).size;
-    return uniq / Math.max(1, dataset.rows.length) > 0.5;
-  }).slice(0, 4);
+  const highCard = dataset.columns
+    .filter((c) => {
+      const uniq = new Set(dataset.rows.map((r) => String(r[c.name] ?? "")))
+        .size;
+      return uniq / Math.max(1, dataset.rows.length) > 0.5;
+    })
+    .slice(0, 4);
   for (let i = 0; i < highCard.length; i++) {
     for (let j = i + 1; j < highCard.length; j++) {
-      const a = highCard[i].name, b = highCard[j].name;
+      const a = highCard[i].name,
+        b = highCard[j].name;
       const seen2 = new Set<string>();
       let dup2 = false;
       for (const r of rows) {
         const k = `${String(r[a])}|${String(r[b])}`;
-        if (seen2.has(k)) { dup2 = true; break; }
+        if (seen2.has(k)) {
+          dup2 = true;
+          break;
+        }
         seen2.add(k);
       }
       if (!dup2) compositeKeys.push([a, b]);
@@ -340,7 +371,12 @@ export function pipelineQuality(dataset: Dataset): QualityProfile {
     }
     if (whitespace > 0) whitespaceCols.add(col.name);
     if (typeSet.size > 1) mixedTypes.add(col.name);
-    if (invalidCount > 0) invalid.push({ column: col.name, issue: "non-numeric in numeric col", count: invalidCount });
+    if (invalidCount > 0)
+      invalid.push({
+        column: col.name,
+        issue: "non-numeric in numeric col",
+        count: invalidCount,
+      });
   }
 
   return {

@@ -29,7 +29,6 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-// @ts-expect-error unused helper kept for future notebook ops
 async function tx<T>(
   store: string,
   mode: IDBTransactionMode,

@@ -5,7 +5,7 @@ import {
   embedMany,
   getEmbeddingDims,
   getEmbeddingModelId,
-} from "@/stella/models";
+} from "@/stella/models/embeddingModel";
 import { cosineSimilarity as embeddingCosine } from "@/embeddings/EmbeddingService";
 
 export class Embedder {

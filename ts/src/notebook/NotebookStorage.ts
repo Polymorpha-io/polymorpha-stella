@@ -10,14 +10,20 @@ import type { WorkspaceHost } from "@/lib/WorkspaceServiceTypes";
 export async function serializeNotebook(
   notebook: Notebook,
 ): Promise<Uint8Array> {
-  return compressGzip(JSON.stringify(notebook));
+  return compressGzip(JSON.stringify(notebook)) as unknown as Uint8Array;
 }
 
 export async function deserializeNotebook(
   blob: ArrayBuffer,
 ): Promise<Notebook> {
-  const decompressed = await decompressGzip(blob);
-  const text = new TextDecoder().decode(decompressed);
+  const decompressed = (await decompressGzip(
+    blob as unknown as Uint8Array,
+  )) as unknown as Uint8Array | string;
+  const bytes =
+    typeof decompressed === "string"
+      ? new TextEncoder().encode(decompressed)
+      : (decompressed as Uint8Array);
+  const text = new TextDecoder().decode(bytes);
   const raw = JSON.parse(text) as Notebook;
   // minimal migration: ensure fields exist
   if (!raw.version) raw.version = 1;
@@ -34,13 +40,25 @@ export async function saveNotebook(
   try {
     const compressed = await serializeNotebook(notebook);
     const path = `users/${host.uid}/workspaces/${workspaceId}/notebook.json.gz`;
-    await uploadBytes(ref(host.storage, path), compressed);
+    await uploadBytes(
+      ref(
+        host.storage as unknown as import("firebase/storage").FirebaseStorage,
+        path,
+      ),
+      compressed as unknown as ArrayBuffer,
+    );
     if (host.db) {
       try {
         const { doc, updateDoc, serverTimestamp } =
           await import("firebase/firestore");
         await updateDoc(
-          doc(host.db, "users", host.uid, "workspaces", workspaceId),
+          doc(
+            host.db as unknown as import("firebase/firestore").Firestore,
+            "users",
+            host.uid,
+            "workspaces",
+            workspaceId,
+          ),
           {
             updatedAt: serverTimestamp(),
           },
@@ -66,7 +84,12 @@ export async function loadNotebook(
   if (cached !== undefined) return cached;
   const path = `users/${host.uid}/workspaces/${workspaceId}/notebook.json.gz`;
   try {
-    const bytes = await getBytes(ref(host.storage, path));
+    const bytes = await getBytes(
+      ref(
+        host.storage as unknown as import("firebase/storage").FirebaseStorage,
+        path,
+      ),
+    );
     const nb = await deserializeNotebook(bytes);
     workspaceCache.set(
       host.uid,

@@ -33,15 +33,23 @@ export class RelationshipKnowledgeProvider implements KnowledgeProvider {
 
   async provide(
     workspaceId: string,
+    notebook?: unknown,
     injectedOverride?: RelationshipKnowledgeProviderInput,
   ): Promise<KnowledgeRecord[]> {
+    void notebook;
     try {
       const src = injectedOverride ?? this.injected;
       if (!src) return [];
       const ragState = {
         byDataset: src.ragDatasets,
         activeUploadId: src.activeUploadId ?? null,
-        profile: { dataset: null, perColumn: null, missing: null, duplicate: null, quality: null } as unknown as import("../../lib/rag/types").RagDatasetProfile,
+        profile: {
+          dataset: null,
+          perColumn: null,
+          missing: null,
+          duplicate: null,
+          quality: null,
+        } as unknown as import("../../lib/rag/types").RagDatasetProfile,
         status: {} as Record<string, string>,
         isProfiling: false,
         error: null,
