@@ -75,6 +75,18 @@ export function useNotebookSync(workspaceId: string | null) {
   const lastCleanHashRef = useRef<string | null>(null);
   const lastAnalysisHashRef = useRef<string | null>(null);
 
+  // Reset dedupe refs on workspace switch so same datasetId in different ws can re-emit
+  useEffect(() => {
+    lastUploadHashRef.current = null;
+    lastUploadCellIdRef.current = null;
+    lastCleanHashRef.current = null;
+    lastAnalysisHashRef.current = null;
+    prevRawRef.current = null;
+    prevCleanedRef.current = null;
+    prevResultsRef.current = null;
+    prevAppliedLen.current = 0;
+  }, [effectiveWsId]);
+
   // Upload → cell (per-dataset, deduped; handles authed pending uploadId)
   useEffect(() => {
     if (!raw) return;
