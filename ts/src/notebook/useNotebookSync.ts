@@ -12,15 +12,25 @@ function datasetIdsFromStore(
   return ids;
 }
 
+function stableHash(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(33, h) ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
 /**
  * G24: Reuses NotebookService + KnowledgeService (thin adapters over IndexedDB/Embeddings) — no custom parsers.
  * Syncs wizard → notebook cells and keeps KnowledgeStore up-to-date.
+ * Per-dataset filter (1): cells carry datasetIds (uploadId); dedupe per dataset to avoid 22× spam.
  */
 export function useNotebookSync(workspaceId: string | null) {
   const effectiveWsId = workspaceId ?? "guest";
   const raw = useDataStore(
     (s) => (s as unknown as { raw: Dataset | null }).raw,
   ) as Dataset | null;
+  const uploadId = useDataStore(
+    (s) => (s as unknown as { uploadId: string | null }).uploadId,
+  ) as string | null;
   const cleaned = useDataStore(
     (s) => (s as unknown as { cleaned: Dataset | null }).cleaned,
   ) as Dataset | null;
@@ -60,18 +70,32 @@ export function useNotebookSync(workspaceId: string | null) {
   const prevAppliedLen = useRef(0);
   const prevCleanedRef = useRef<Dataset | null>(null);
   const prevResultsRef = useRef<unknown>(null);
+  const lastUploadHashRef = useRef<string | null>(null);
+  const lastUploadCellIdRef = useRef<string | null>(null);
+  const lastCleanHashRef = useRef<string | null>(null);
+  const lastAnalysisHashRef = useRef<string | null>(null);
 
-  // Upload → cell
+  // Upload → cell (per-dataset, deduped; handles authed pending uploadId)
   useEffect(() => {
     if (!raw) return;
+    // Guest: uploadId may stay null, use file fallback. Authed: wait for uploadId if workspace present.
+    if (effectiveWsId !== "guest" && !uploadId) return;
     if (prevRawRef.current && prevRawRef.current === raw) return;
+    const dsIds = datasetIdsFromStore(useDataStore.getState());
+    const uploadHash = stableHash(
+      `${raw.fileName}:${raw.rows.length}:${raw.columns.length}:${dsIds[0] ?? "guest"}`,
+    );
+    // Dedupe same datasetId+file within session (prevents 22× re-upload spam)
+    if (lastUploadHashRef.current === uploadHash) return;
+    // Also skip if raw same fileName+rows but uploadId unchanged (switch back)
     const isNew =
       !prevRawRef.current ||
       prevRawRef.current.fileName !== raw.fileName ||
-      prevRawRef.current.rows.length !== raw.rows.length;
+      prevRawRef.current.rows.length !== raw.rows.length ||
+      lastUploadHashRef.current !== uploadHash;
     if (!isNew) return;
     prevRawRef.current = raw;
-    const dsIds = datasetIdsFromStore(useDataStore.getState());
+    lastUploadHashRef.current = uploadHash;
     notebookService
       .appendCell(effectiveWsId, {
         type: "upload",
@@ -93,26 +117,49 @@ export function useNotebookSync(workspaceId: string | null) {
         execution: {
           executionCount: 1,
           status: "success",
-          inputHash: "upload",
+          inputHash: `upload_${uploadHash}`,
           outputHash: `h_${raw.rows.length}_${raw.columns.length}`,
         },
         provenance: {
           datasetIds: dsIds,
           sourceCellIds: [],
-          inputHashes: [],
+          inputHashes: [uploadHash],
           dependsOn: [],
         },
         step: "upload",
         datasetIds: dsIds,
       })
-      .then(async () => {
+      .then(async (cell) => {
+        lastUploadCellIdRef.current = cell.id;
         try {
           const nb = await notebookService.getOrCreate(effectiveWsId);
           await knowledgeService.indexNotebook(nb);
         } catch {}
       })
       .catch(() => {});
-  }, [raw, effectiveWsId]);
+  }, [raw, uploadId, effectiveWsId]);
+
+  // Patch last upload cell when uploadId arrives after raw (authed async recordUpload)
+  useEffect(() => {
+    if (!raw || !uploadId || !lastUploadCellIdRef.current) return;
+    // If last cell already has this datasetId, nothing to do
+    void (async () => {
+      try {
+        const cell = await notebookService.getCell(effectiveWsId, lastUploadCellIdRef.current as string);
+        if (!cell) return;
+        const hasId = cell.datasetIds.includes(uploadId) || cell.provenance.datasetIds.includes(uploadId);
+        if (hasId) return;
+        // Backfill datasetId (empty guest race)
+        if (cell.datasetIds.length === 0) {
+          await notebookService.updateCell(effectiveWsId, cell.id, {
+            datasetIds: [uploadId],
+            provenance: { ...cell.provenance, datasetIds: [uploadId] },
+            source: { ...cell.source, uploadId },
+          } as unknown as Partial<typeof cell>);
+        }
+      } catch {}
+    })();
+  }, [uploadId, raw, effectiveWsId]);
 
   // Model ops → cells
   useEffect(() => {
@@ -158,13 +205,19 @@ export function useNotebookSync(workspaceId: string | null) {
       .catch(() => {});
   }, [appliedSteps, effectiveWsId]);
 
-  // Clean → cell
+  // Clean → cell (per-dataset, deduped by rowsRemoved+output length+dataset)
   useEffect(() => {
     if (!cleaned || !cleaningDiff) return;
     if (prevCleanedRef.current === cleaned) return;
-    prevCleanedRef.current = cleaned;
     const dsIds = datasetIdsFromStore(useDataStore.getState());
     const rowsRemoved = cleaningDiff.rowsRemoved ?? 0;
+    const cleanHash = stableHash(`${dsIds[0] ?? "guest"}:${rowsRemoved}:${cleaned.rows.length}:${cleaned.columns.length}`);
+    if (lastCleanHashRef.current === cleanHash) {
+      prevCleanedRef.current = cleaned;
+      return;
+    }
+    lastCleanHashRef.current = cleanHash;
+    prevCleanedRef.current = cleaned;
     notebookService
       .appendCell(effectiveWsId, {
         type: "clean",
@@ -187,13 +240,13 @@ export function useNotebookSync(workspaceId: string | null) {
         execution: {
           executionCount: 1,
           status: "success",
-          inputHash: `clean_${dsIds[0]}`,
+          inputHash: `clean_${cleanHash}`,
           outputHash: `clean_out_${cleaned.rows.length}`,
         },
         provenance: {
           datasetIds: dsIds,
           sourceCellIds: [],
-          inputHashes: [],
+          inputHashes: [cleanHash],
           operation: "clean",
           columns: Object.keys(cleaningDiff.valuesImputed || {}),
           dependsOn: [],
@@ -208,16 +261,26 @@ export function useNotebookSync(workspaceId: string | null) {
       .catch(() => {});
   }, [cleaned, cleaningDiff, effectiveWsId]);
 
-  // Analysis → cell
+  // Analysis → cell (per-dataset, deduped by dataset+result keys)
   useEffect(() => {
     if (!results) return;
     if (prevResultsRef.current === results) return;
-    prevResultsRef.current = results;
     const dsIds = datasetIdsFromStore(useDataStore.getState());
+    const keys = Object.keys(results).sort().join(",");
     const hasData = Object.values(results).some((v) =>
       Array.isArray(v) ? v.length > 0 : v != null,
     );
-    if (!hasData) return;
+    if (!hasData) {
+      prevResultsRef.current = results;
+      return;
+    }
+    const analysisHash = stableHash(`${dsIds[0] ?? "guest"}:${keys}:${JSON.stringify(results).slice(0, 120)}`);
+    if (lastAnalysisHashRef.current === analysisHash) {
+      prevResultsRef.current = results;
+      return;
+    }
+    lastAnalysisHashRef.current = analysisHash;
+    prevResultsRef.current = results;
     notebookService
       .appendCell(effectiveWsId, {
         type: "analysis",
@@ -235,13 +298,13 @@ export function useNotebookSync(workspaceId: string | null) {
         execution: {
           executionCount: 1,
           status: "success",
-          inputHash: `analysis_${dsIds[0]}`,
+          inputHash: `analysis_${analysisHash}`,
           outputHash: `analysis_${Date.now()}`,
         },
         provenance: {
           datasetIds: dsIds,
           sourceCellIds: [],
-          inputHashes: [],
+          inputHashes: [analysisHash],
           operation: "analysis",
           dependsOn: [],
         },

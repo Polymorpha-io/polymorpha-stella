@@ -146,10 +146,19 @@ export class NotebookService {
     // Stub respects G15 business-logic single source — no inline cleaning logic here.
   }
 
-  async getActiveCells(workspaceId: string): Promise<NotebookCell[]> {
+  async getActiveCells(
+    workspaceId: string,
+    opts?: { datasetId?: string | null },
+  ): Promise<NotebookCell[]> {
     const nb = await notebookRepository.getByWorkspace(workspaceId);
     if (!nb) return [];
-    return nb.cells.filter((c) => c.status === "active");
+    const active = nb.cells.filter((c) => c.status === "active");
+    if (!opts?.datasetId) return active;
+    return active.filter(
+      (c) =>
+        c.datasetIds.includes(opts.datasetId as string) ||
+        c.provenance?.datasetIds?.includes(opts.datasetId as string),
+    );
   }
 
   async getCell(
@@ -161,9 +170,27 @@ export class NotebookService {
     return nb.cells.find((c) => c.id === cellId) ?? null;
   }
 
-  async listCells(workspaceId: string): Promise<NotebookCell[]> {
+  async listCells(
+    workspaceId: string,
+    opts?: { datasetId?: string | null },
+  ): Promise<NotebookCell[]> {
     const nb = await notebookRepository.getByWorkspace(workspaceId);
-    return nb?.cells ?? [];
+    const cells = nb?.cells ?? [];
+    if (!opts?.datasetId) return cells;
+    const did = opts.datasetId;
+    return cells.filter(
+      (c) =>
+        c.datasetIds.includes(did as string) ||
+        c.provenance?.datasetIds?.includes(did as string),
+    );
+  }
+
+  /** Convenience: list cells for a specific dataset; empty datasetId returns all. */
+  async listCellsForDataset(
+    workspaceId: string,
+    datasetId: string | null,
+  ): Promise<NotebookCell[]> {
+    return this.listCells(workspaceId, { datasetId });
   }
 
   async updateCell(
