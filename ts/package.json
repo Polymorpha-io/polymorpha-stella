@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -b && vite build 2>&1 | head -20; echo \"[stella] build done\"",
+    "build": "tsc -b",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run --reporter=verbose",
     "test:watch": "vitest"
