@@ -19,6 +19,23 @@ const SYSTEM_PROMPT = [
   "When citing notebook evidence, reference Cell ID and dataset provenance.",
 ].join("\n");
 
+const DATASET_EXPERT_PROMPT = [
+  "You are an expert of the current dataset. Always ground answers in the Dataset Expert Context below.",
+  "Cite column types, missing%, and sample coverage (exact/sample) when relevant.",
+  "Prefer data_representative rows for examples, disclose when using sample vs exact.",
+  "If the dataset has no rows, say so and do not invent data.",
+].join("\n");
+
+export interface DatasetExpertContext {
+  fileName: string;
+  uploadId: string | null;
+  rowCount: number;
+  colCount: number;
+  columnTypes: Array<{ name: string; type: string }>;
+  cleaned: boolean;
+  cleaningSummary?: string;
+}
+
 export interface StellaContext {
   activeCellId?: string;
   notebookId?: string;
@@ -26,6 +43,7 @@ export interface StellaContext {
   kinds?: KnowledgeKind[];
   column?: string;
   datasetIds?: string[];
+  datasetExpert?: DatasetExpertContext | null;
 }
 
 export class BrainService {
@@ -105,6 +123,20 @@ export class BrainService {
         });
 
         const parts: string[] = [];
+        // Dataset expert header — always first, guarantees grounding
+        if (context?.datasetExpert) {
+          const de = context.datasetExpert;
+          const cols = de.columnTypes
+            .slice(0, 12)
+            .map((c) => `${c.name}(${c.type})`)
+            .join(", ");
+          const more = de.colCount > 12 ? ` +${de.colCount - 12} more` : "";
+          parts.push(
+            `[dataset_expert] Expert of dataset "${de.fileName}" — ${de.rowCount} rows × ${de.colCount} cols${de.cleaned ? " (cleaned)" : ""}${de.cleaningSummary ? ` — ${de.cleaningSummary}` : ""} — uploadId:${de.uploadId ?? "guest"} — columns: ${cols}${more}`,
+          );
+        } else if (context?.datasetIds && context.datasetIds.length > 0) {
+          parts.push(`[dataset_expert] Current datasetIds: ${context.datasetIds.join(", ")}`);
+        }
         if (notebookContextStr)
           parts.push(`[notebook_context]\n${notebookContextStr}`);
         if (kResults.length > 0) {
@@ -131,9 +163,12 @@ export class BrainService {
       } catch {
         // RAG retrieval optional — continue without context
       }
-      const systemContent = contextStr
-        ? `${SYSTEM_PROMPT}\n\nContext (Knowledge plane — notebook + dataset + relationship, use when relevant):\n${contextStr}`
+      const systemPrompt = context?.datasetExpert
+        ? `${SYSTEM_PROMPT}\n\n${DATASET_EXPERT_PROMPT}`
         : SYSTEM_PROMPT;
+      const systemContent = contextStr
+        ? `${systemPrompt}\n\nContext (Knowledge plane — notebook + dataset + relationship, use when relevant):\n${contextStr}`
+        : systemPrompt;
       const stellaMessages: Array<{ role: string; content: string }> = [
         { role: "system", content: systemContent },
         ...messages.map((m) => ({ role: m.role, content: m.content })),

@@ -45,6 +45,16 @@ export type GroqModel = typeof DEFAULT_GROQ_MODEL;
 
 export const DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b" as const;
 
+export interface DatasetExpertContext {
+  fileName: string;
+  uploadId: string | null;
+  rowCount: number;
+  colCount: number;
+  columnTypes: Array<{ name: string; type: string }>;
+  cleaned: boolean;
+  cleaningSummary?: string;
+}
+
 export const EXAMPLE_PROMPTS = [
   "What does a p-value mean?",
   "How do I clean missing data?",

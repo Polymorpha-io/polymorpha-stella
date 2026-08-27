@@ -9,6 +9,16 @@ export type StellaStreamCallbacks = {
   onError: (err: Error) => void;
 };
 
+export interface DatasetExpertContext {
+  fileName: string;
+  uploadId: string | null;
+  rowCount: number;
+  colCount: number;
+  columnTypes: Array<{ name: string; type: string }>;
+  cleaned: boolean;
+  cleaningSummary?: string;
+}
+
 export interface StellaContext {
   activeCellId?: string | null;
   notebookId?: string | null;
@@ -16,6 +26,7 @@ export interface StellaContext {
   kinds?: KnowledgeKind[];
   column?: string;
   datasetIds?: string[];
+  datasetExpert?: DatasetExpertContext | null;
 }
 
 export class StellaService implements IStellaClient {
@@ -27,6 +38,7 @@ export class StellaService implements IStellaClient {
   private kinds?: KnowledgeKind[];
   private column?: string;
   private datasetIds?: string[];
+  private datasetExpert?: DatasetExpertContext | null = null;
 
   setContext(
     workspaceId: string | null,
@@ -37,6 +49,7 @@ export class StellaService implements IStellaClient {
       kinds?: KnowledgeKind[];
       column?: string;
       datasetIds?: string[];
+      datasetExpert?: DatasetExpertContext | null;
     },
   ): void {
     this.workspaceId = workspaceId;
@@ -47,6 +60,7 @@ export class StellaService implements IStellaClient {
       if (opts.kinds !== undefined) this.kinds = opts.kinds;
       if (opts.column !== undefined) this.column = opts.column;
       if (opts.datasetIds !== undefined) this.datasetIds = opts.datasetIds;
+      if (opts.datasetExpert !== undefined) this.datasetExpert = opts.datasetExpert;
     }
   }
 
@@ -66,6 +80,7 @@ export class StellaService implements IStellaClient {
       kinds: this.kinds,
       column: this.column,
       datasetIds: this.datasetIds,
+      datasetExpert: this.datasetExpert ?? undefined,
     } as unknown as Record<string, unknown> as StellaContext & { searchScope: "workspace" | "all" } & Record<string, unknown>;
   }
 
