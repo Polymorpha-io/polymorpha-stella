@@ -143,12 +143,39 @@ export class BrainService {
       const res = await fetch(STELLA_API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: stellaMessages, model }),
+        body: JSON.stringify({ messages: stellaMessages, model, stream: true }),
       });
 
       if (!res.ok) {
         const errText = await res.text().catch(() => "Unknown error");
         throw new Error(`Stella API error (${res.status}): ${errText}`);
+      }
+
+      // Handle both streaming (SSE data: ) and non-streaming JSON (fallback)
+      const contentType = res.headers.get("Content-Type") || "";
+      if (contentType.includes("application/json") && !contentType.includes("text/event-stream")) {
+        // Non-stream fallback (e.g., Groq without stream:true or Vite HTML fallback)
+        try {
+          const json = (await res.json()) as {
+            choices?: Array<{ message?: { content?: string }; delta?: { content?: string } }>;
+          };
+          const content =
+            json.choices?.[0]?.message?.content ??
+            json.choices?.[0]?.delta?.content ??
+            "";
+          const cleaned = content.replace(/<\/?think>/g, "").trim();
+          if (cleaned) {
+            onToken(cleaned);
+            onDone(cleaned);
+          } else {
+            throw new Error("Empty response from Stella");
+          }
+          return;
+        } catch (e) {
+          throw new Error(
+            e instanceof Error ? e.message : "Failed to parse Stella response",
+          );
+        }
       }
 
       const reader = res.body!.getReader();
@@ -174,6 +201,7 @@ export class BrainService {
             let token = parsed.choices?.[0]?.delta?.content || "";
             if (token) {
               token = token.replace(/<\/?think>/g, "");
+              if (!token.trim()) continue;
               full += token;
               onToken(token);
             }
@@ -182,7 +210,27 @@ export class BrainService {
           }
         }
       }
+      // Flush leftover buffer (no trailing \n)
+      if (buffer.trim().startsWith("data: ")) {
+        try {
+          const jsonStr = buffer.trim().slice(6);
+          if (jsonStr !== "[DONE]") {
+            const parsed = JSON.parse(jsonStr);
+            let token = parsed.choices?.[0]?.delta?.content || "";
+            if (token) {
+              token = token.replace(/<\/?think>/g, "");
+              if (token.trim()) {
+                full += token;
+                onToken(token);
+              }
+            }
+          }
+        } catch {}
+      }
 
+      if (!full.trim()) {
+        throw new Error("Empty response from Stella");
+      }
       onDone(full);
     } catch (err) {
       onError(err instanceof Error ? err : new Error(String(err)));

@@ -41,35 +41,9 @@ export interface StellaContext {
   question: string;
 }
 
-export type GroqModel = string;
+export type GroqModel = typeof DEFAULT_GROQ_MODEL;
 
-export const DEFAULT_GROQ_MODEL: GroqModel = "openai/gpt-oss-20b";
-
-export const AVAILABLE_MODELS: Array<{
-  id: GroqModel;
-  label: string;
-  name: string;
-  description: string;
-}> = [
-  {
-    id: "openai/gpt-oss-20b",
-    label: "GPT OSS 20B",
-    name: "GPT OSS 20B",
-    description: "OpenAI GPT OSS 20B",
-  },
-  {
-    id: "llama-3.1-8b-instant",
-    label: "Llama 3.1 8B Instant",
-    name: "Llama 3.1 8B Instant",
-    description: "Fast, lightweight",
-  },
-  {
-    id: "llama-3.1-70b-versatile",
-    label: "Llama 3.1 70B Versatile",
-    name: "Llama 3.1 70B Versatile",
-    description: "Balanced performance",
-  },
-];
+export const DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b" as const;
 
 export const EXAMPLE_PROMPTS = [
   "What does a p-value mean?",
