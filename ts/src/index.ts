@@ -1,7 +1,10 @@
 export * from "./knowledge/types";
 export * from "./knowledge/KnowledgeStore";
 export * from "./knowledge/KnowledgeExtractor";
-export * from "./knowledge/KnowledgeService";
+export {
+  KnowledgeService,
+  knowledgeService,
+} from "./knowledge/KnowledgeService";
 export * from "./knowledge/providers/DatasetKnowledgeProvider";
 export * from "./knowledge/providers/RelationshipKnowledgeProvider";
 
@@ -46,12 +49,17 @@ export * from "./lib/rag/pipelines";
 export * from "./lib/rag/types";
 
 export * from "./notebook/types";
+export type {
+  Notebook,
+  NotebookCell,
+  NotebookCellType,
+  CellStatus,
+} from "./notebook/types";
 export * from "./notebook/nbformat";
 export * from "./notebook/NotebookContextBuilder";
-export * from "./notebook/NotebookService";
+export { NotebookService, notebookService } from "./notebook/NotebookService";
 export * from "./notebook/NotebookRepository";
 export * from "./notebook/NotebookStorage";
-export * from "./notebook/useNotebookSync";
 
 export * from "./stella/types";
 export {
