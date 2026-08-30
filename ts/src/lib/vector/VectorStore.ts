@@ -6,8 +6,8 @@
  * G18 per-user isolation `uid:vector:contentHash:chunkId`, 20MB quota via clientStore.
  * G24 reuse: delegates IDB persistence to clientStore (mirrors CacheService pattern).
  */
-import type { EmbeddingVector } from "./EmbeddingService";
-import { cosineSimilarity } from "./EmbeddingService";
+import type { EmbeddingVector } from "@/embeddings/EmbeddingService";
+import { cosineSimilarity } from "@/embeddings/EmbeddingService";
 import * as clientStore from "./clientStore";
 
 export type VectorRecord = {

@@ -5,8 +5,10 @@ import type {
   KnowledgeResult,
 } from "./types";
 import { knowledgeStore } from "./KnowledgeStore";
-import { embeddingService } from "@/embeddings/EmbeddingService";
-import { Embedder } from "@/stella/brain/Embedder";
+import {
+  embeddingService,
+  cosineSimilarity,
+} from "@/embeddings/EmbeddingService";
 import { knowledgeExtractor } from "./KnowledgeExtractor";
 import type { Notebook } from "@/notebook/types";
 import { notebookRepository } from "@/notebook/NotebookRepository";
@@ -289,7 +291,7 @@ export class KnowledgeService {
 
     const scored: KnowledgeResult[] = candidates.map((rec, i) => {
       const v = vectors[i];
-      let score = v ? Embedder.cosineSimilarity(queryVec!, v) : 0;
+      let score = v ? cosineSimilarity(queryVec!, v) : 0;
       const status = (rec.metadata as { status?: string }).status;
       if (status === "active") score += 0.15;
       else if (status === "stale") score += 0.05;
