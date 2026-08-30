@@ -1,8 +1,11 @@
-// EmbeddingWorker — thin wrapper, will be moved to Web Worker later.
-// For Phase 1, this runs on main thread via same pipeline, but through central service
-// so Batch + dedup + cache is already in place. Worker porting is Phase 2 (G21).
+// EmbeddingWorker — thin adapter; Phase 1 runs on main thread via pipeline.
+// Batch + dedup + cache in place; moved to Web Worker in Phase 2 (G21).
+// TODO: Phase 2 — implement `new Worker(new URL(..., import.meta.url))` + Comlink batch
 
-import { embed as modelEmbed, loadEmbeddingModel } from "@/stella/models/embeddingModel";
+import {
+  embed as modelEmbed,
+  loadEmbeddingModel,
+} from "@/stella/models/embeddingModel";
 
 let ready = false;
 
