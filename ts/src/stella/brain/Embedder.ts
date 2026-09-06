@@ -5,8 +5,8 @@ import {
   embedMany,
   getEmbeddingDims,
   getEmbeddingModelId,
-} from "@/stella/models/embeddingModel";
-import { cosineSimilarity as embeddingCosine } from "@/embeddings/EmbeddingService";
+} from "../../stella/models/embeddingModel";
+import { cosineSimilarity as embeddingCosine } from "../../embeddings/EmbeddingService";
 
 export class Embedder {
   async load(): Promise<void> {

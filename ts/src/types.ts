@@ -1,4 +1,5 @@
-export type ColumnType = "numeric" | "categorical" | "date" | "boolean" | "unknown";
+export type ColumnType =
+  "numeric" | "categorical" | "date" | "boolean" | "unknown";
 
 export interface Column {
   name: string;
@@ -15,7 +16,8 @@ export interface Dataset {
   uploadedAt?: Date;
 }
 
-export type AppStep = "upload" | "model" | "preview" | "clean" | "stats" | "export";
+export type AppStep =
+  "upload" | "model" | "preview" | "clean" | "stats" | "export";
 
 export interface CleaningConfig extends Record<string, unknown> {
   type?: string;

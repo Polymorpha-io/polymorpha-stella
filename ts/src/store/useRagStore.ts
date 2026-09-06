@@ -3,7 +3,7 @@ import type {
   RagPipelineName,
   PipelineStatus,
   RagProfileState,
-} from "@/lib/rag/types";
+} from "../lib/rag/types";
 
 const mem = new Map<string, RagProfileState>();
 let active: string | null = null;

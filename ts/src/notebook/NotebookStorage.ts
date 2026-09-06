@@ -2,10 +2,10 @@
  * G24: Checked WorkspaceState.ts (existing gzip + Firebase Storage + workspaceCache) — reuses same Storage path pattern and cache invalidation, thin adapter for notebook.json.gz per workspace (not per dataset).
  */
 import { getBytes, ref, uploadBytes } from "firebase/storage";
-import { workspaceCache, CACHE_TTL } from "@/lib/cache";
-import { compressGzip, decompressGzip } from "@/lib/compression";
+import { workspaceCache, CACHE_TTL } from "../lib/cache";
+import { compressGzip, decompressGzip } from "../lib/compression";
 import type { Notebook } from "./types";
-import type { WorkspaceHost } from "@/lib/WorkspaceServiceTypes";
+import type { WorkspaceHost } from "../lib/WorkspaceServiceTypes";
 
 export async function serializeNotebook(
   notebook: Notebook,

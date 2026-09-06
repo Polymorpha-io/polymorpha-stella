@@ -1,7 +1,7 @@
 import type { GroqModel, IStellaClient, IStellaMessage } from "./types";
 import { DEFAULT_GROQ_MODEL } from "./types";
 import { BrainService } from "./brain/BrainService";
-import type { KnowledgeKind } from "@/knowledge/types";
+import type { KnowledgeKind } from "../knowledge/types";
 
 export type StellaStreamCallbacks = {
   onToken: (token: string) => void;
@@ -54,13 +54,15 @@ export class StellaService implements IStellaClient {
   ): void {
     this.workspaceId = workspaceId;
     if (opts) {
-      if (opts.activeCellId !== undefined) this.activeCellId = opts.activeCellId;
+      if (opts.activeCellId !== undefined)
+        this.activeCellId = opts.activeCellId;
       if (opts.notebookId !== undefined) this.notebookId = opts.notebookId;
       if (opts.searchScope !== undefined) this.searchScope = opts.searchScope;
       if (opts.kinds !== undefined) this.kinds = opts.kinds;
       if (opts.column !== undefined) this.column = opts.column;
       if (opts.datasetIds !== undefined) this.datasetIds = opts.datasetIds;
-      if (opts.datasetExpert !== undefined) this.datasetExpert = opts.datasetExpert;
+      if (opts.datasetExpert !== undefined)
+        this.datasetExpert = opts.datasetExpert;
     }
   }
 
@@ -72,7 +74,9 @@ export class StellaService implements IStellaClient {
     this.searchScope = scope;
   }
 
-  private getStellaContext(): StellaContext & { searchScope: "workspace" | "all" } & Record<string, unknown> {
+  private getStellaContext(): StellaContext & {
+    searchScope: "workspace" | "all";
+  } & Record<string, unknown> {
     return {
       activeCellId: this.activeCellId ?? undefined,
       notebookId: this.notebookId ?? undefined,
@@ -81,7 +85,9 @@ export class StellaService implements IStellaClient {
       column: this.column,
       datasetIds: this.datasetIds,
       datasetExpert: this.datasetExpert ?? undefined,
-    } as unknown as Record<string, unknown> as StellaContext & { searchScope: "workspace" | "all" } & Record<string, unknown>;
+    } as unknown as Record<string, unknown> as StellaContext & {
+      searchScope: "workspace" | "all";
+    } & Record<string, unknown>;
   }
 
   async sendMessage(
@@ -106,7 +112,9 @@ export class StellaService implements IStellaClient {
             callbacks.onError(err);
             reject(err);
           },
-          this.getStellaContext() as unknown as Parameters<BrainService["answerStreaming"]>[7],
+          this.getStellaContext() as unknown as Parameters<
+            BrainService["answerStreaming"]
+          >[7],
         );
       });
       return { role: "assistant", content: replyContent };
@@ -122,7 +130,9 @@ export class StellaService implements IStellaClient {
           () => {},
           (full) => resolve(full),
           (err) => reject(err),
-          this.getStellaContext() as unknown as Parameters<BrainService["answerStreaming"]>[7],
+          this.getStellaContext() as unknown as Parameters<
+            BrainService["answerStreaming"]
+          >[7],
         );
       });
       return { role: "assistant", content: reply };

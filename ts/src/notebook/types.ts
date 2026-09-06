@@ -1,4 +1,4 @@
-import type { AppStep, CleaningConfig } from "@/types";
+import type { AppStep, CleaningConfig } from "../types";
 
 // ---------------------------------------------------------------------------
 // Notebook — per workspace, cells reference one or more datasets

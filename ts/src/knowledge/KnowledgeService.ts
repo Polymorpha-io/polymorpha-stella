@@ -8,10 +8,10 @@ import { knowledgeStore } from "./KnowledgeStore";
 import {
   embeddingService,
   cosineSimilarity,
-} from "@/embeddings/EmbeddingService";
+} from "../embeddings/EmbeddingService";
 import { knowledgeExtractor } from "./KnowledgeExtractor";
-import type { Notebook } from "@/notebook/types";
-import { notebookRepository } from "@/notebook/NotebookRepository";
+import type { Notebook } from "../notebook/types";
+import { notebookRepository } from "../notebook/NotebookRepository";
 import { DatasetKnowledgeProvider } from "./providers/DatasetKnowledgeProvider";
 import { RelationshipKnowledgeProvider } from "./providers/RelationshipKnowledgeProvider";
 import { DICTIONARY_TERMS } from "@polymorpha/business-logic";

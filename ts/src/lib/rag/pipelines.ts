@@ -1,4 +1,4 @@
-import type { Dataset } from "@/types";
+import type { Dataset } from "../../types";
 import type {
   DatasetLevelProfile,
   PerColumnProfile,

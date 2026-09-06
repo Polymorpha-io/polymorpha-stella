@@ -1,5 +1,5 @@
-import type { Dataset } from "@/types";
-import { useRagStore } from "@/store/useRagStore";
+import type { Dataset } from "../../types";
+import { useRagStore } from "../../store/useRagStore";
 import {
   pipelineDataset,
   pipelinePerColumn,
@@ -8,17 +8,17 @@ import {
   pipelineQuality,
 } from "./pipelines";
 import type { RagPipelineName } from "./types";
-import { callStatsApi, callStatsApiWithPath } from "@/lib/stats/api";
+import { callStatsApi, callStatsApiWithPath } from "../../lib/stats/api";
 import {
   getStorageBackedContext,
   resolveStorageBacked,
-} from "@/lib/stats/storageBacked";
-import { useDataStore } from "@/store/useDataStore";
+} from "../../lib/stats/storageBacked";
+import { useDataStore } from "../../store/useDataStore";
 import {
   EMBED_SAMPLING_VERSION,
   EMBED_SAMPLING_SEED,
   EMBED_DATA_SAMPLE_N,
-} from "@/config";
+} from "../../config";
 import type { DataRepresentativeSample } from "./types";
 
 // simple hash for dataset identity (per G21 hashDataset truth, but lightweight here)

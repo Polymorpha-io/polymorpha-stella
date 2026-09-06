@@ -60,8 +60,8 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
       // Fallback for unit tests / local polymorpha when not injected — read from stores
       if (!src) {
         try {
-          const { useDataStore } = await import("@/store/useDataStore");
-          const { useRagStore } = await import("@/store/useRagStore");
+          const { useDataStore } = await import("../../store/useDataStore");
+          const { useRagStore } = await import("../../store/useRagStore");
           const dsState = (
             useDataStore as unknown as {
               getState: () => {
@@ -221,7 +221,7 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
               datasetId,
               uploadId,
               String(contentHash),
-              datasetForRep as unknown as import("@/types").Dataset,
+              datasetForRep as unknown as import("../../types").Dataset,
               objective,
             );
             const shSynth = await sourceHash(
@@ -269,7 +269,7 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
                 uploadId,
                 String(contentHash),
                 profile.dataset,
-                datasetForRep as unknown as import("@/types").Dataset,
+                datasetForRep as unknown as import("../../types").Dataset,
               )
             : null;
           const text =
@@ -321,7 +321,7 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
               datasetId,
               uploadId,
               String(contentHash),
-              datasetForRep as unknown as import("@/types").Dataset,
+              datasetForRep as unknown as import("../../types").Dataset,
             );
           } catch {
             // ignore
@@ -446,7 +446,7 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
             datasetId,
             uploadId,
             String(contentHash),
-            datasetForRep as unknown as import("@/types").Dataset,
+            datasetForRep as unknown as import("../../types").Dataset,
           );
           for (const col of headerOnly) {
             const sh = await sourceHash(
@@ -501,7 +501,7 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
                   datasetId,
                   uploadId,
                   String(contentHash),
-                  datasetForRep as unknown as import("@/types").Dataset,
+                  datasetForRep as unknown as import("../../types").Dataset,
                   profile.perColumn,
                   {
                     mode:

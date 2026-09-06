@@ -1,7 +1,7 @@
 import type { Notebook, NotebookCell } from "./types";
-import type { KnowledgeRecord } from "@/knowledge/types";
-import type { KnowledgeKind } from "@/knowledge/types";
-import { knowledgeService } from "@/knowledge/KnowledgeService";
+import type { KnowledgeRecord } from "../knowledge/types";
+import type { KnowledgeKind } from "../knowledge/types";
+import { knowledgeService } from "../knowledge/KnowledgeService";
 import { notebookRepository } from "./NotebookRepository";
 
 export interface NotebookContext {
@@ -26,7 +26,17 @@ export interface BuildOptions {
 
 export class NotebookContextBuilder {
   async build(opts: BuildOptions): Promise<NotebookContext> {
-    const { workspaceId, notebookId, activeCellId, datasetId, datasetIds, query, scope, kinds, column } = opts;
+    const {
+      workspaceId,
+      notebookId,
+      activeCellId,
+      datasetId,
+      datasetIds,
+      query,
+      scope,
+      kinds,
+      column,
+    } = opts;
 
     let notebook: Notebook | null = null;
     if (notebookId) {

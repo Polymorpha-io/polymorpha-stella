@@ -3,11 +3,11 @@
  * G24: Reuses EmbeddingService + KnowledgeService (hybrid structured+semantic). No direct NotebookStorage/VectorStore/EmbeddingCache.
  * KnowledgeRecord is the semantic boundary: BrainService knows KnowledgeSearchRequest→KnowledgeResult only.
  */
-import type { GroqModel, IStellaMessage } from "@/stella/types";
-import { DEFAULT_GROQ_MODEL } from "@/stella/types";
-import { knowledgeService } from "@/knowledge/KnowledgeService";
-import { notebookContextBuilder } from "@/notebook/NotebookContextBuilder";
-import type { KnowledgeKind } from "@/knowledge/types";
+import type { GroqModel, IStellaMessage } from "../../stella/types";
+import { DEFAULT_GROQ_MODEL } from "../../stella/types";
+import { knowledgeService } from "../../knowledge/KnowledgeService";
+import { notebookContextBuilder } from "../../notebook/NotebookContextBuilder";
+import type { KnowledgeKind } from "../../knowledge/types";
 
 const STELLA_API_URL = "/api/stella/chat";
 
@@ -135,7 +135,9 @@ export class BrainService {
             `[dataset_expert] Expert of dataset "${de.fileName}" — ${de.rowCount} rows × ${de.colCount} cols${de.cleaned ? " (cleaned)" : ""}${de.cleaningSummary ? ` — ${de.cleaningSummary}` : ""} — uploadId:${de.uploadId ?? "guest"} — columns: ${cols}${more}`,
           );
         } else if (context?.datasetIds && context.datasetIds.length > 0) {
-          parts.push(`[dataset_expert] Current datasetIds: ${context.datasetIds.join(", ")}`);
+          parts.push(
+            `[dataset_expert] Current datasetIds: ${context.datasetIds.join(", ")}`,
+          );
         }
         if (notebookContextStr)
           parts.push(`[notebook_context]\n${notebookContextStr}`);
@@ -188,11 +190,17 @@ export class BrainService {
 
       // Handle both streaming (SSE data: ) and non-streaming JSON (fallback)
       const contentType = res.headers.get("Content-Type") || "";
-      if (contentType.includes("application/json") && !contentType.includes("text/event-stream")) {
+      if (
+        contentType.includes("application/json") &&
+        !contentType.includes("text/event-stream")
+      ) {
         // Non-stream fallback (e.g., Groq without stream:true or Vite HTML fallback)
         try {
           const json = (await res.json()) as {
-            choices?: Array<{ message?: { content?: string }; delta?: { content?: string } }>;
+            choices?: Array<{
+              message?: { content?: string };
+              delta?: { content?: string };
+            }>;
           };
           const content =
             json.choices?.[0]?.message?.content ??

@@ -1,5 +1,5 @@
 import { pipeline, type FeatureExtractionPipeline } from "@xenova/transformers";
-import { EMBED_MODEL, EMBED_CHUNK_TOKENS, EMBED_DIM } from "@/config";
+import { EMBED_MODEL, EMBED_CHUNK_TOKENS, EMBED_DIM } from "../../config";
 
 let pipe: FeatureExtractionPipeline | null = null;
 let tokenizer: unknown | null = null;

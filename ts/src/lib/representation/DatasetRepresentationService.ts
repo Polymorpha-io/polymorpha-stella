@@ -4,8 +4,8 @@
  * Dataset → semantic representation → vector artifacts
  * Representation layer = semantic representation, Vector layer = index, RAG = retrieval
  */
-import type { Dataset } from "@/types";
-import type { RagDatasetProfile } from "@/lib/rag/types";
+import type { Dataset } from "../../types";
+import type { RagDatasetProfile } from "../../lib/rag/types";
 import type {
   DatasetProfileEmbedding,
   ColumnSemanticEmbedding,
@@ -15,7 +15,7 @@ import type {
   SelectionPolicy,
 } from "./types";
 import { hashString } from "@polymorpha/business-logic";
-import { EMBED_SAMPLING_VERSION, EMBED_SAMPLING_SEED } from "@/config";
+import { EMBED_SAMPLING_VERSION, EMBED_SAMPLING_SEED } from "../../config";
 
 const STRATEGY_VERSION = EMBED_SAMPLING_VERSION;
 

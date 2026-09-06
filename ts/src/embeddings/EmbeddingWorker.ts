@@ -5,7 +5,7 @@
 import {
   embed as modelEmbed,
   loadEmbeddingModel,
-} from "@/stella/models/embeddingModel";
+} from "../stella/models/embeddingModel";
 
 let ready = false;
 

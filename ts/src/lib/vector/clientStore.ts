@@ -3,7 +3,7 @@
  * Mirrors CacheService T3 openDB/LRU/cross-tab but indexed by uid:vector:contentHash:chunkId
  * Separate quota 20MB from datasets 50MB to avoid LRU pollution (G18).
  */
-import { EMBED_VECTOR_MAX_BYTES, EMBED_VECTOR_MAX_ENTRIES } from "@/config";
+import { EMBED_VECTOR_MAX_BYTES, EMBED_VECTOR_MAX_ENTRIES } from "../../config";
 import type { VectorRecord } from "./VectorStore";
 
 const DB_NAME = "polymorpha-vectors";

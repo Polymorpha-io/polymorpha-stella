@@ -1,4 +1,4 @@
-import type { SampleCoverage } from "@/config";
+import type { SampleCoverage } from "../../config";
 
 export type RagPipelineName =
   "dataset" | "perColumn" | "missing" | "duplicate" | "quality";

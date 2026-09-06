@@ -1,5 +1,9 @@
-import { EMBED_DIM } from "@/config";
-import { chunkText as modelChunkText, embed as modelEmbed, embedMany as modelEmbedMany } from "@/stella/models/embeddingModel";
+import { EMBED_DIM } from "../config";
+import {
+  chunkText as modelChunkText,
+  embed as modelEmbed,
+  embedMany as modelEmbedMany,
+} from "../stella/models/embeddingModel";
 
 export type EmbeddingVector = Float32Array;
 
@@ -18,7 +22,9 @@ export async function embed(text: string): Promise<EmbeddingVector> {
   return modelEmbed(text);
 }
 
-export async function embedMany(texts: string[]): Promise<{ vectors: EmbeddingVector[]; keys: string[] }> {
+export async function embedMany(
+  texts: string[],
+): Promise<{ vectors: EmbeddingVector[]; keys: string[] }> {
   const vectors = await modelEmbedMany(texts);
   const keys = texts.map((_, i) => `k${i}`);
   return { vectors, keys };

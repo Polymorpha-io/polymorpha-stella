@@ -1,4 +1,4 @@
-import type { Notebook, NotebookCell } from "@/notebook/types";
+import type { Notebook, NotebookCell } from "../notebook/types";
 import type { KnowledgeRecord } from "./types";
 import { sourceHash } from "./sourceHash";
 
@@ -160,8 +160,8 @@ export class KnowledgeExtractor {
   }
 
   private outputNarrative(
-    output: import("@/notebook/types").NotebookOutput,
-    cell: import("@/notebook/types").NotebookCell,
+    output: import("../notebook/types").NotebookOutput,
+    cell: import("../notebook/types").NotebookCell,
   ): string | null {
     const title = output.metadata.title ? ` "${output.metadata.title}"` : "";
     switch (output.type) {
