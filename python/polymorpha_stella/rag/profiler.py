@@ -89,7 +89,7 @@ class StellaRagProfiler:
                 {
                     "id": f"dataset:{dataset_id}:col:{cname}",
                     "workspaceId": workspace_id,
-                    "notebookId": f"nb:{workspaceId}",
+                    "notebookId": f"nb:{workspace_id}",
                     "datasetId": dataset_id,
                     "kind": "column_semantic",
                     "text": text,
@@ -110,7 +110,7 @@ class StellaRagProfiler:
                 {
                     "id": f"rel:{dataset_id}:missingTogether:{a}:{b}",
                     "workspaceId": workspace_id,
-                    "notebookId": f"nb:{workspaceId}",
+                    "notebookId": f"nb:{workspace_id}",
                     "datasetId": dataset_id,
                     "kind": "relationship",
                     "text": text,
