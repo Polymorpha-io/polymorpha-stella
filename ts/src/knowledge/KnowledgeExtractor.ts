@@ -1,21 +1,9 @@
 import type { Notebook, NotebookCell } from "@/notebook/types";
 import type { KnowledgeRecord } from "./types";
-import { hashString } from "@polymorpha/business-logic";
+import { sourceHash } from "./sourceHash";
 
 function stableId(cellId: string, suffix: string): string {
   return `${cellId}::${suffix}`;
-}
-
-async function sourceHash(text: string): Promise<string> {
-  try {
-    const hex = await hashString(text);
-    return hex.slice(0, 16);
-  } catch {
-    let h = 5381;
-    for (let i = 0; i < text.length; i++)
-      h = (Math.imul(33, h) ^ text.charCodeAt(i)) >>> 0;
-    return h.toString(36);
-  }
 }
 
 export class KnowledgeExtractor {

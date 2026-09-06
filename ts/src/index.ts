@@ -1,4 +1,5 @@
 export * from "./knowledge/types";
+export * from "./knowledge/sourceHash";
 export * from "./knowledge/KnowledgeStore";
 export * from "./knowledge/KnowledgeExtractor";
 export {

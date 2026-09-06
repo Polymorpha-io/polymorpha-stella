@@ -25,25 +25,6 @@ else:
     _IMPORT_ERROR = None
 
 
-def _chunk_text_simple(text: str, chunk_tokens: int = 512) -> List[str]:
-    if not text:
-        return []
-    approx_chars = chunk_tokens * 4
-    if len(text) <= approx_chars:
-        return [text]
-    out: List[str] = []
-    start = 0
-    while start < len(text):
-        end = min(start + approx_chars, len(text))
-        if end < len(text):
-            last_nl = text.rfind("\n", start, end)
-            if last_nl > start + approx_chars * 0.5:
-                end = last_nl + 1
-        out.append(text[start:end].strip())
-        start = end
-    return [c for c in out if c]
-
-
 class StellaRagProfiler:
     """Thin wrapper — business-logic RagProfiler -> KnowledgeRecord dicts."""
 
@@ -141,5 +122,7 @@ class StellaRagProfiler:
                 }
             )
 
-        # chunk representative if needed — here simplified to one record per profile
+        # NOTE: one record per profile/column/relationship — no data_representative
+        # or notebook kinds here (needs row-level access + TS embedding parity).
+        # Tracked as follow-up; TS side chunks reps via embeddingModel.chunkText.
         return out

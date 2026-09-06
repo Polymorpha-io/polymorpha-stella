@@ -1,24 +1,12 @@
 import type { KnowledgeRecord } from "../types";
 import type { KnowledgeProvider } from "../KnowledgeService";
-import { hashString } from "@polymorpha/business-logic";
+import { sourceHash } from "../sourceHash";
 
 /**
  * RelationshipKnowledgeProvider — thin adapter over RagService pipelines.
  * No new analysis engine; reuses existing RAG outputs:
  * missing.missingTogether, duplicate.candidateKeys/compositeKeys, perColumn correlations.
  */
-
-async function sourceHash(text: string): Promise<string> {
-  try {
-    const hex = await hashString(text);
-    return hex.slice(0, 16);
-  } catch {
-    let h = 5381;
-    for (let i = 0; i < text.length; i++)
-      h = (Math.imul(33, h) ^ text.charCodeAt(i)) >>> 0;
-    return h.toString(36);
-  }
-}
 
 export type RelationshipKnowledgeProviderInput = {
   ragDatasets: Map<string, import("../../lib/rag/types").RagProfileState>;

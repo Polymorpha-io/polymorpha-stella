@@ -1,6 +1,7 @@
 import type { KnowledgeRecord } from "../types";
 import type { KnowledgeProvider } from "../KnowledgeService";
-import { hashString } from "@polymorpha/business-logic";
+import { sourceHash } from "../sourceHash";
+import { chunkText as modelChunkText } from "../../stella/models/embeddingModel";
 import {
   EMBED_CHUNK_TOKENS,
   EMBED_PER_COLUMN_LIMIT,
@@ -25,37 +26,6 @@ import type {
  * Does not own vector storage; only translates semantic representation → KnowledgeRecord.
  * G24: reuses existing sampling + Rag pipelines, no duplicate engine.
  */
-
-async function sourceHash(text: string): Promise<string> {
-  try {
-    const hex = await hashString(text);
-    return hex.slice(0, 16);
-  } catch {
-    let h = 5381;
-    for (let i = 0; i < text.length; i++)
-      h = (Math.imul(33, h) ^ text.charCodeAt(i)) >>> 0;
-    return h.toString(36);
-  }
-}
-
-function chunkTextSimple(text: string, chunkTokens: number): string[] {
-  if (!text) return [];
-  const approxChars = chunkTokens * 4;
-  if (text.length <= approxChars) return [text];
-  const out: string[] = [];
-  let start = 0;
-  while (start < text.length) {
-    // try to break at newline
-    let end = Math.min(start + approxChars, text.length);
-    if (end < text.length) {
-      const lastNewline = text.lastIndexOf("\n", end);
-      if (lastNewline > start + approxChars * 0.5) end = lastNewline + 1;
-    }
-    out.push(text.slice(start, end).trim());
-    start = end;
-  }
-  return out.filter(Boolean);
-}
 
 export type DatasetKnowledgeProviderInput = {
   ragDatasets: Map<string, import("../../lib/rag/types").RagProfileState>;
@@ -545,7 +515,7 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
                 repSample = embeddings[0].metadata.sample;
                 // Serialize per-row texts then chunk by token budget
                 const serialized = embeddings.map((e) => e.text).join("\n");
-                const chunks = chunkTextSimple(serialized, EMBED_CHUNK_TOKENS);
+                const chunks = modelChunkText(serialized, EMBED_CHUNK_TOKENS);
                 repTexts = chunks;
                 // chunk row indices roughly proportionally
                 const perChunk = Math.ceil(
@@ -584,7 +554,7 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
                   }`,
               )
               .join(" | ")}`;
-            repTexts = chunkTextSimple(synth, EMBED_CHUNK_TOKENS);
+            repTexts = modelChunkText(synth, EMBED_CHUNK_TOKENS);
             repRowIndices = repTexts.map(() => []);
           }
 
