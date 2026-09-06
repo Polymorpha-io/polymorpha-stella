@@ -1,6 +1,7 @@
 node_modules/
 ts/dist/
 ts/.tsbuildinfo
+ts/tsconfig.tsbuildinfo
 dist/
 .polymorpha/
 coverage/
