@@ -62,14 +62,6 @@ export async function deleteVectorsByContentHash(
   await clientStore.deleteByContentHash(uid, contentHash);
 }
 
-export async function searchVectors(
-  _uid: string,
-  _queryEmbedding: EmbeddingVector,
-  _opts: { topK?: number; scope?: string } = {},
-): Promise<Array<{ record: VectorRecord; score: number }>> {
-  return [];
-}
-
 export async function federatedSearch(
   _uid: string,
   queryEmbedding: EmbeddingVector,
@@ -128,7 +120,6 @@ export const vectorStore = {
   getVectors,
   getAllVectors,
   deleteVectorsByContentHash,
-  searchVectors,
   federatedSearch,
   clearAll: async () => clientStore.clearAll(),
 };

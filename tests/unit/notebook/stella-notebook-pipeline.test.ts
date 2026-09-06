@@ -737,9 +737,9 @@ describe("BrainService — Stella really understands notebook pipeline (system p
     expect(sys).toContain("Cell 3");
   });
 
-  it("falls back to LibraryService federated vectors when KnowledgeStore empty", async () => {
+  it("produces Stella prompt when KnowledgeStore empty", async () => {
     await knowledgeStore.clear();
-    // ensure LibraryService has at least empty but BrainService should still produce prompt without error
+    // BrainService should still produce prompt without error when store is empty
     const svc = new BrainService();
     await svc.init("ws-empty");
     await new Promise<void>((resolve, reject) => {

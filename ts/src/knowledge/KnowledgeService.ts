@@ -40,14 +40,6 @@ class DictionaryKnowledgeProvider implements KnowledgeProvider {
   }
 }
 
-class LegacyKnowledgeProvider implements KnowledgeProvider {
-  // Library: GitHub-only, no local fallback to "@/store/useRagStore" / "@/store/useDataStore".
-  // Legacy path is deprecated — returns [] . Consumers should pre-index via KnowledgeService.index*().
-  async provide(_workspaceId: string): Promise<KnowledgeRecord[]> {
-    return [];
-  }
-}
-
 function normalizeSearchOpts(
   query: string,
   opts: KnowledgeSearchOptions | KnowledgeSearchRequest,
@@ -108,7 +100,6 @@ export class KnowledgeService {
   private dictProvider = new DictionaryKnowledgeProvider();
   private datasetProvider = new DatasetKnowledgeProvider();
   private relationshipProvider = new RelationshipKnowledgeProvider();
-  private legacyProvider = new LegacyKnowledgeProvider();
 
   async index(record: KnowledgeRecord): Promise<void> {
     await knowledgeStore.put(record);
@@ -201,14 +192,6 @@ export class KnowledgeService {
     if (n.includeSystemKnowledge) {
       const dict = await this.dictProvider.provide().catch(() => []);
       candidates.push(...dict);
-    }
-
-    if (candidates.length < 3 && workspaceId) {
-      const legacy = await this.legacyProvider
-        .provide(workspaceId)
-        .catch(() => []);
-      const seen = new Set(candidates.map((c) => c.id));
-      for (const r of legacy) if (!seen.has(r.id)) candidates.push(r);
     }
 
     if (n.kinds && n.kinds.length) {
