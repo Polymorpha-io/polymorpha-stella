@@ -4,6 +4,7 @@ import type {
   PipelineStatus,
   RagProfileState,
 } from "../lib/rag/types";
+import { SENTINEL_SINGLE } from "../config/knowledge";
 
 const mem = new Map<string, RagProfileState>();
 let active: string | null = null;
@@ -59,7 +60,7 @@ function createRagStore() {
     hash: null,
     updatedAt: null,
     startProfiling: (hash: string, uploadId?: string | null) => {
-      const uid = uploadId ?? "__single__";
+      const uid = uploadId ?? SENTINEL_SINGLE;
       mem.set(uid, {
         profile: {
           dataset: null,
@@ -92,7 +93,7 @@ function createRagStore() {
       status: PipelineStatus,
       uploadId?: string | null,
     ) => {
-      const uid = (uploadId ?? active ?? "__single__") as string;
+      const uid = (uploadId ?? active ?? SENTINEL_SINGLE) as string;
       const cur = mem.get(uid);
       if (cur) {
         cur.status[name] = status;
@@ -107,7 +108,7 @@ function createRagStore() {
       value: RagDatasetProfile[K],
       uploadId?: string | null,
     ) => {
-      const uid = (uploadId ?? active ?? "__single__") as string;
+      const uid = (uploadId ?? active ?? SENTINEL_SINGLE) as string;
       const cur = mem.get(uid);
       if (cur) {
         (cur.profile as unknown as Record<string, unknown>)[key as string] =
@@ -116,7 +117,7 @@ function createRagStore() {
       }
     },
     finishProfiling: (uploadId?: string | null) => {
-      const uid = (uploadId ?? active ?? "__single__") as string;
+      const uid = (uploadId ?? active ?? SENTINEL_SINGLE) as string;
       const cur = mem.get(uid);
       if (cur) cur.isProfiling = false;
     },
@@ -129,7 +130,7 @@ function createRagStore() {
       sample: RagProfileState["sample"],
       uploadId?: string | null,
     ) => {
-      const uid = (uploadId ?? active ?? "__single__") as string;
+      const uid = (uploadId ?? active ?? SENTINEL_SINGLE) as string;
       const cur = mem.get(uid);
       if (cur) cur.sample = sample;
       else

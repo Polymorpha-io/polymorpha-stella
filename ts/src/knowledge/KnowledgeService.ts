@@ -15,6 +15,13 @@ import { notebookRepository } from "../notebook/NotebookRepository";
 import { DatasetKnowledgeProvider } from "./providers/DatasetKnowledgeProvider";
 import { RelationshipKnowledgeProvider } from "./providers/RelationshipKnowledgeProvider";
 import { DICTIONARY_TERMS } from "@polymorpha/business-logic";
+import {
+  DICTIONARY_TERMS_LIMIT,
+  RETRIEVAL_LIMIT_DATA,
+  RETRIEVAL_LIMIT_DEFAULT,
+  SCORE_BOOSTS,
+  SCORE_FALLBACK,
+} from "../config/retrieval";
 
 export interface KnowledgeProvider {
   provide(
@@ -25,7 +32,7 @@ export interface KnowledgeProvider {
 
 class DictionaryKnowledgeProvider implements KnowledgeProvider {
   async provide(): Promise<KnowledgeRecord[]> {
-    return DICTIONARY_TERMS.slice(0, 80).map((t) => ({
+    return DICTIONARY_TERMS.slice(0, DICTIONARY_TERMS_LIMIT).map((t) => ({
       id: `dict::${t.id}`,
       workspaceId: "system",
       notebookId: "system",
@@ -80,7 +87,9 @@ function normalizeSearchOpts(
     (anyOpts.includeSuperseded as boolean | undefined) ?? historyIntent;
   const limit =
     (anyOpts.limit as number | undefined) ??
-    (kinds?.includes("data_representative") ? 12 : 8);
+    (kinds?.includes("data_representative")
+      ? RETRIEVAL_LIMIT_DATA
+      : RETRIEVAL_LIMIT_DEFAULT);
   return {
     workspaceId,
     notebookId,
@@ -231,7 +240,7 @@ export class KnowledgeService {
     if (!query || query.trim().length === 0) {
       return candidates
         .slice(0, n.limit)
-        .map((r) => ({ record: r, score: 0.5 }));
+        .map((r) => ({ record: r, score: SCORE_FALLBACK }));
     }
 
     let cellIndexMap = new Map<string, number>();
@@ -258,7 +267,7 @@ export class KnowledgeService {
     } catch {
       return candidates
         .slice(0, n.limit)
-        .map((r) => ({ record: r, score: 0.5 }));
+        .map((r) => ({ record: r, score: SCORE_FALLBACK }));
     }
 
     const texts = candidates.map((c) => c.text);
@@ -269,43 +278,45 @@ export class KnowledgeService {
     } catch {
       return candidates
         .slice(0, n.limit)
-        .map((r) => ({ record: r, score: 0.5 }));
+        .map((r) => ({ record: r, score: SCORE_FALLBACK }));
     }
 
     const scored: KnowledgeResult[] = candidates.map((rec, i) => {
       const v = vectors[i];
       let score = v ? cosineSimilarity(queryVec!, v) : 0;
       const status = (rec.metadata as { status?: string }).status;
-      if (status === "active") score += 0.15;
-      else if (status === "stale") score += 0.05;
-      else if (status === "superseded") score -= 0.1;
+      if (status === "active") score += SCORE_BOOSTS.statusActive;
+      else if (status === "stale") score += SCORE_BOOSTS.statusStale;
+      else if (status === "superseded") score += SCORE_BOOSTS.statusSuperseded;
       if (n.datasetIds.length > 0) {
         const provIds =
           rec.provenance.datasetIds ?? (rec.datasetId ? [rec.datasetId] : []);
-        if (provIds.some((id) => n.datasetIds.includes(id))) score += 0.2;
+        if (provIds.some((id) => n.datasetIds.includes(id)))
+          score += SCORE_BOOSTS.datasetMatch;
       }
-      if (n.activeCellId && rec.cellId === n.activeCellId) score += 0.3;
+      if (n.activeCellId && rec.cellId === n.activeCellId)
+        score += SCORE_BOOSTS.activeCell;
       if (n.activeCellId && rec.provenance.cellId === n.activeCellId)
-        score += 0.3;
+        score += SCORE_BOOSTS.activeCell;
       if (n.column) {
         const cols =
           rec.provenance.columns ??
           ((rec.metadata as Record<string, unknown>)?.columns as
             string[] | undefined);
-        if (cols?.includes(n.column)) score += 0.2;
+        if (cols?.includes(n.column)) score += SCORE_BOOSTS.columnMatch;
       }
       if (n.activeCellId && activeIndex != null && rec.cellId) {
         const candIdx = cellIndexMap.get(rec.cellId);
         if (candIdx != null) {
           const dist = Math.abs(candIdx - activeIndex);
-          score += 0.15 * (1 / (1 + dist));
+          score += SCORE_BOOSTS.cellDistance * (1 / (1 + dist));
         }
       }
       if (n.activeCellId && activeIndex != null && rec.provenance.cellId) {
         const candIdx = cellIndexMap.get(rec.provenance.cellId);
         if (candIdx != null) {
           const dist = Math.abs(candIdx - activeIndex);
-          score += 0.1 * (1 / (1 + dist));
+          score += SCORE_BOOSTS.provenanceDistance * (1 / (1 + dist));
         }
       }
       return { record: rec, score, vector: v };

@@ -4,10 +4,11 @@
  */
 import type { KnowledgeRecord, KnowledgeStoreRecord } from "./types";
 import { normalizeKind } from "./types";
+import { IDB_KNOWLEDGE } from "../config/knowledge";
 
-const DB_NAME = "polymorpha-knowledge";
-const DB_VERSION = 2;
-const STORE = "knowledge";
+const DB_NAME = IDB_KNOWLEDGE.db;
+const DB_VERSION = IDB_KNOWLEDGE.version;
+const STORE = IDB_KNOWLEDGE.store;
 
 function normalizeRecord(raw: KnowledgeRecord): KnowledgeRecord {
   const kind = normalizeKind(raw.kind as string);

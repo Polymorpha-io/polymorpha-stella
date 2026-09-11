@@ -1,9 +1,14 @@
+import {
+  DYNAMIC_SYNC_TTL_MS,
+  QUOTAS_CACHE_TTL_MS,
+} from "@polymorpha/business-logic";
+
 type CacheKey = string;
 const mem = new Map<CacheKey, { v: unknown; exp: number }>();
 export const CACHE_TTL = {
-  workspace: 5 * 60 * 1000,
-  quota: 30_000,
-  default: 30_000,
+  workspace: DYNAMIC_SYNC_TTL_MS,
+  quota: QUOTAS_CACHE_TTL_MS,
+  default: QUOTAS_CACHE_TTL_MS,
 } as const;
 function key(uid: string, ns: string, id: string): CacheKey {
   return `${uid}:${ns}:${id}`;

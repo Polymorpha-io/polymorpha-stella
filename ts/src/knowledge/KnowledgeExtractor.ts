@@ -1,6 +1,11 @@
 import type { Notebook, NotebookCell } from "../notebook/types";
 import type { KnowledgeRecord } from "./types";
 import { sourceHash } from "./sourceHash";
+import {
+  SNIPPET_CELL_NOTE,
+  SNIPPET_NOTE,
+  SNIPPET_OUTPUT,
+} from "../config/knowledge";
 
 function stableId(cellId: string, suffix: string): string {
   return `${cellId}::${suffix}`;
@@ -153,7 +158,7 @@ export class KnowledgeExtractor {
       case "export":
         return `Cell ${cell.index} [export]${status} exported${ds}.`;
       case "markdown":
-        return `Cell ${cell.index} [note]${status}: ${cell.source.markdown?.slice(0, 200) ?? ""}`;
+        return `Cell ${cell.index} [note]${status}: ${cell.source.markdown?.slice(0, SNIPPET_CELL_NOTE) ?? ""}`;
       default:
         return `Cell ${cell.index} [${cell.type}]${status} on${ds}.`;
     }
@@ -183,11 +188,11 @@ export class KnowledgeExtractor {
       case "chart":
         return `Cell ${cell.index} chart${title} type ${output.metadata.chartType ?? (output.data as { chartType?: string })?.chartType ?? "unknown"} ${output.metadata.columns ? `for ${output.metadata.columns.join(", ")}` : ""}.`;
       case "metric":
-        return `Cell ${cell.index} metric${title}: ${JSON.stringify(output.data).slice(0, 300)}`;
+        return `Cell ${cell.index} metric${title}: ${JSON.stringify(output.data).slice(0, SNIPPET_OUTPUT)}`;
       case "error":
-        return `Cell ${cell.index} error${title}: ${String(output.data).slice(0, 300)}`;
+        return `Cell ${cell.index} error${title}: ${String(output.data).slice(0, SNIPPET_OUTPUT)}`;
       case "text":
-        return `Cell ${cell.index} note${title}: ${String(output.data).slice(0, 400)}`;
+        return `Cell ${cell.index} note${title}: ${String(output.data).slice(0, SNIPPET_NOTE)}`;
       case "dataset":
         return `Cell ${cell.index} dataset${title}: ${output.metadata.rowCount ?? "?"} rows.`;
       case "file":

@@ -2,12 +2,18 @@
  * G24: Checked CacheService T3 (datasets/blobs, hash→Dataset) — embeddings are Float32Array vectors keyed by modelVersion+textHash, not Datasets; reusing CacheService would conflate 50MB dataset quota with 20MB vector quota and pollute LRU. Thin dedicated IDB mirrors CacheService LRU/inflight/openDB patterns.
  */
 import type { EmbeddingEntry } from "./types";
+import {
+  EMBED_CACHE_OVERHEAD,
+  IDB_EMBEDDINGS,
+} from "../config/knowledge";
+import { CACHE_HIGH_WATERMARK } from "@polymorpha/business-logic";
+import { EMBED_VECTOR_MAX_BYTES, EMBED_VECTOR_MAX_ENTRIES } from "../config";
 
-const DB_NAME = "polymorpha-embeddings";
-const DB_VERSION = 1;
-const STORE = "embeddings";
-const MAX_ENTRIES = 10000;
-const MAX_BYTES = 20 * 1024 * 1024; // ~20MB vectors
+const DB_NAME = IDB_EMBEDDINGS.db;
+const DB_VERSION = IDB_EMBEDDINGS.version;
+const STORE = IDB_EMBEDDINGS.store;
+const MAX_ENTRIES = EMBED_VECTOR_MAX_ENTRIES;
+const MAX_BYTES = EMBED_VECTOR_MAX_BYTES;
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -28,7 +34,7 @@ function openDb(): Promise<IDBDatabase> {
 }
 
 function estimateBytes(entry: EmbeddingEntry): number {
-  return entry.vector.byteLength + 200;
+  return entry.vector.byteLength + EMBED_CACHE_OVERHEAD;
 }
 
 export class EmbeddingCache {
@@ -178,7 +184,7 @@ export class EmbeddingCache {
     }
     // LRU by lastAccessedAt
     all.sort((a, b) => a.lastAccessedAt - b.lastAccessedAt);
-    const targetCount = Math.floor(MAX_ENTRIES * 0.8);
+    const targetCount = Math.floor(MAX_ENTRIES * CACHE_HIGH_WATERMARK);
     const toRemove = all.slice(0, Math.max(0, all.length - targetCount));
     if (toRemove.length === 0) return;
     const db2 = await openDb();

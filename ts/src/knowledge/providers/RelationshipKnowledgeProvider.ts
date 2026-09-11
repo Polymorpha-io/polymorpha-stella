@@ -1,6 +1,11 @@
 import type { KnowledgeRecord } from "../types";
 import type { KnowledgeProvider } from "../KnowledgeService";
 import { sourceHash } from "../sourceHash";
+import { SENTINEL_SINGLE } from "../../config/knowledge";
+import {
+  RELATIONSHIP_LIST_TOP,
+  RELATIONSHIP_MISSING_TOP,
+} from "../../config/retrieval";
 
 /**
  * RelationshipKnowledgeProvider — thin adapter over RagService pipelines.
@@ -65,7 +70,7 @@ export class RelationshipKnowledgeProvider implements KnowledgeProvider {
       if (entries.length === 0 && ragState.profile.dataset) {
         // fallback single
         entries.push([
-          ragState.hash ?? "__single__",
+          ragState.hash ?? SENTINEL_SINGLE,
           {
             profile: ragState.profile,
             status: ragState.status,
@@ -73,10 +78,10 @@ export class RelationshipKnowledgeProvider implements KnowledgeProvider {
             error: ragState.error,
             hash: ragState.hash,
             updatedAt: ragState.updatedAt,
-            uploadId: ragState.activeUploadId ?? "__single__",
+            uploadId: ragState.activeUploadId ?? SENTINEL_SINGLE,
             contentHash: ragState.hash,
             sample:
-              ragState.byDataset.get(ragState.activeUploadId ?? "__single__")
+              ragState.byDataset.get(ragState.activeUploadId ?? SENTINEL_SINGLE)
                 ?.sample ?? null,
           } as unknown as (typeof entries)[number][1],
         ]);
@@ -89,7 +94,7 @@ export class RelationshipKnowledgeProvider implements KnowledgeProvider {
 
         // missingTogether → relationship
         if (missing?.missingTogether && missing.missingTogether.length > 0) {
-          for (const rel of missing.missingTogether.slice(0, 10)) {
+          for (const rel of missing.missingTogether.slice(0, RELATIONSHIP_MISSING_TOP)) {
             const text = `Relationship: columns "${rel.a}" and "${rel.b}" tend to be missing together (correlation ${rel.correlation.toFixed(2)}) in dataset ${datasetId}`;
             const sh = await sourceHash(
               `${workspaceId}:${datasetId}:rel:missingTogether:${rel.a}:${rel.b}`,
@@ -125,7 +130,7 @@ export class RelationshipKnowledgeProvider implements KnowledgeProvider {
 
         // duplicate candidateKeys
         if (duplicate?.candidateKeys && duplicate.candidateKeys.length > 0) {
-          const keys = duplicate.candidateKeys.slice(0, 5).join(", ");
+          const keys = duplicate.candidateKeys.slice(0, RELATIONSHIP_LIST_TOP).join(", ");
           const text = `Relationship: candidate key columns [${keys}] uniquely identify rows in dataset ${datasetId} (duplicate ${duplicate.duplicatePct}% ${duplicate.duplicateRows} rows)`;
           const sh = await sourceHash(
             `${workspaceId}:${datasetId}:rel:candidateKeys:${keys}`,
@@ -158,7 +163,7 @@ export class RelationshipKnowledgeProvider implements KnowledgeProvider {
         }
 
         if (duplicate?.compositeKeys && duplicate.compositeKeys.length > 0) {
-          for (const comp of duplicate.compositeKeys.slice(0, 5)) {
+          for (const comp of duplicate.compositeKeys.slice(0, RELATIONSHIP_LIST_TOP)) {
             const text = `Relationship: composite key [${comp.join(", ")}] uniquely identifies rows in dataset ${datasetId}`;
             const sh = await sourceHash(
               `${workspaceId}:${datasetId}:rel:composite:${comp.join("_")}`,
@@ -193,7 +198,7 @@ export class RelationshipKnowledgeProvider implements KnowledgeProvider {
 
         // quality invalid / mixed types
         if (quality?.invalid && quality.invalid.length > 0) {
-          for (const inv of quality.invalid.slice(0, 5)) {
+          for (const inv of quality.invalid.slice(0, RELATIONSHIP_LIST_TOP)) {
             const text = `Relationship: column "${inv.column}" has ${inv.count} invalid ${inv.issue} values in dataset ${datasetId}`;
             const sh = await sourceHash(
               `${workspaceId}:${datasetId}:rel:quality:${inv.column}:${inv.issue}`,

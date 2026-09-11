@@ -8,6 +8,10 @@
  */
 import type { EmbeddingVector } from "../../embeddings/EmbeddingService";
 import { cosineSimilarity } from "../../embeddings/EmbeddingService";
+import {
+  RETRIEVAL_LIMIT_DEFAULT,
+  RETRIEVAL_TOP_K,
+} from "../../config/retrieval";
 import * as clientStore from "./clientStore";
 
 export type VectorRecord = {
@@ -66,7 +70,7 @@ export async function federatedSearch(
   _uid: string,
   queryEmbedding: EmbeddingVector,
   candidates: VectorRecord[],
-  topK = 5,
+  topK = RETRIEVAL_TOP_K,
 ): Promise<Array<{ record: VectorRecord; score: number }>> {
   const scored = candidates.map((rec) => ({
     record: rec,
@@ -99,7 +103,7 @@ export async function search(
   uid: string,
   queryEmbedding: EmbeddingVector,
   filter: VectorFilter,
-  limit = 8,
+  limit = RETRIEVAL_LIMIT_DEFAULT,
 ): Promise<VectorSearchResult[]> {
   const all =
     filter.scope === "all"

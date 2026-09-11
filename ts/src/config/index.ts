@@ -1,4 +1,9 @@
 export * from "./StellaConfig";
+export * from "./retrieval";
+export * from "./sampling";
+export * from "./chunking";
+export * from "./models";
+export * from "./knowledge";
 import { DEFAULT_STELLA_CONFIG } from "./StellaConfig";
 
 export const EMBED_MODEL = DEFAULT_STELLA_CONFIG.embedModel;

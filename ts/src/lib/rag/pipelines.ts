@@ -6,6 +6,17 @@ import type {
   DuplicateProfile,
   QualityProfile,
 } from "./types";
+import {
+  RAG_CATEGORICAL_TOP_K,
+  RAG_CORR_FLAG,
+  RAG_HIGH_MISSING_PCT,
+  RAG_MAJORITY_RATIO,
+  RAG_MIN_COMPOSITE_KEYS,
+  RAG_MISSING_TOGETHER_TOP,
+  RAG_TOP_CANDIDATE_KEYS,
+  RAG_UNIQUE_RATIO,
+} from "../../config/retrieval";
+import { DUPLICATE_SAMPLE_CAP } from "../../config/sampling";
 
 // helpers
 
@@ -36,8 +47,11 @@ export function pipelineDataset(dataset: Dataset): DatasetLevelProfile {
   for (const c of dataset.columns) {
     columnCountByType[c.type] = (columnCountByType[c.type] ?? 0) + 1;
   }
-  // duplicate rows (sample up to 5k for perf)
-  const sample = rows > 5000 ? dataset.rows.slice(0, 5000) : dataset.rows;
+  // duplicate rows (sample up to DUPLICATE_SAMPLE_CAP for perf)
+  const sample =
+    rows > DUPLICATE_SAMPLE_CAP
+      ? dataset.rows.slice(0, DUPLICATE_SAMPLE_CAP)
+      : dataset.rows;
   const seen = new Set<string>();
   let dup = 0;
   for (const r of sample) {
@@ -174,7 +188,7 @@ export function pipelinePerColumn(dataset: Dataset): PerColumnProfile[] {
       }
       const sorted = [...counts.entries()]
         .sort((a, b) => b[1] - a[1])
-        .slice(0, 5);
+        .slice(0, RAG_CATEGORICAL_TOP_K);
       const topK = sorted.map(([value, count]) => ({
         value,
         count,
@@ -222,7 +236,7 @@ export function pipelineMissing(dataset: Dataset): MissingProfile {
     ? totalMissing / dataset.rows.length
     : 0;
   const highMissingCols = perColumn
-    .filter((p) => p.missingPct > 20)
+    .filter((p) => p.missingPct > RAG_HIGH_MISSING_PCT)
     .map((p) => p.column);
 
   // missing together correlation (simple phi for top 5 high missing)
@@ -230,7 +244,7 @@ export function pipelineMissing(dataset: Dataset): MissingProfile {
     [];
   const high = perColumn
     .filter((p) => p.missingPct > 0 && p.missingPct < 100)
-    .slice(0, 4);
+    .slice(0, RAG_MISSING_TOGETHER_TOP);
   for (let i = 0; i < high.length; i++) {
     for (let j = i + 1; j < high.length; j++) {
       const a = high[i].column;
@@ -249,7 +263,7 @@ export function pipelineMissing(dataset: Dataset): MissingProfile {
       const corr = n
         ? both / Math.sqrt((both + onlyA) * (both + onlyB) || 1)
         : 0;
-      if (corr > 0.3)
+      if (corr > RAG_CORR_FLAG)
         missingTogether.push({
           a,
           b,
@@ -275,7 +289,9 @@ export function pipelineMissing(dataset: Dataset): MissingProfile {
 // 4. duplicate
 export function pipelineDuplicate(dataset: Dataset): DuplicateProfile {
   const rows =
-    dataset.rows.length > 5000 ? dataset.rows.slice(0, 5000) : dataset.rows;
+    dataset.rows.length > DUPLICATE_SAMPLE_CAP
+      ? dataset.rows.slice(0, DUPLICATE_SAMPLE_CAP)
+      : dataset.rows;
   const seen = new Map<string, number>();
   for (const r of rows) {
     const k = JSON.stringify(r);
@@ -299,7 +315,7 @@ export function pipelineDuplicate(dataset: Dataset): DuplicateProfile {
       uniq.add(String(v));
     }
     const ratio = dataset.rows.length ? uniq.size / dataset.rows.length : 0;
-    if (ratio > 0.98 && !hasMissing) uniqueCols.push(c.name);
+    if (ratio > RAG_UNIQUE_RATIO && !hasMissing) uniqueCols.push(c.name);
     if (ratio === 1) candidateKeys.push(c.name);
   }
   // composite keys: naive check for 2-col combos among high cardinality cols (limit)
@@ -308,9 +324,9 @@ export function pipelineDuplicate(dataset: Dataset): DuplicateProfile {
     .filter((c) => {
       const uniq = new Set(dataset.rows.map((r) => String(r[c.name] ?? "")))
         .size;
-      return uniq / Math.max(1, dataset.rows.length) > 0.5;
+      return uniq / Math.max(1, dataset.rows.length) > RAG_MAJORITY_RATIO;
     })
-    .slice(0, 4);
+    .slice(0, RAG_MISSING_TOGETHER_TOP);
   for (let i = 0; i < highCard.length; i++) {
     for (let j = i + 1; j < highCard.length; j++) {
       const a = highCard[i].name,
@@ -326,14 +342,14 @@ export function pipelineDuplicate(dataset: Dataset): DuplicateProfile {
         seen2.add(k);
       }
       if (!dup2) compositeKeys.push([a, b]);
-      if (compositeKeys.length >= 2) break;
+      if (compositeKeys.length >= RAG_MIN_COMPOSITE_KEYS) break;
     }
   }
 
   return {
     duplicateRows: dup,
     duplicatePct: Math.round(duplicatePct * 100) / 100,
-    candidateKeys: candidateKeys.slice(0, 3),
+    candidateKeys: candidateKeys.slice(0, RAG_TOP_CANDIDATE_KEYS),
     compositeKeys,
     uniqueCols,
   };

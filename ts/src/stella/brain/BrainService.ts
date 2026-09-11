@@ -8,8 +8,18 @@ import { DEFAULT_GROQ_MODEL } from "../../stella/types";
 import { knowledgeService } from "../../knowledge/KnowledgeService";
 import { notebookContextBuilder } from "../../notebook/NotebookContextBuilder";
 import type { KnowledgeKind } from "../../knowledge/types";
+import {
+  SENTINEL_GUEST,
+  SNIPPET_BRAIN_OUTPUT,
+  STELLA_CHAT_PATH,
+} from "../../config/knowledge";
+import {
+  RETRIEVAL_LIMIT_DATA,
+  RETRIEVAL_LIMIT_DEFAULT,
+} from "../../config/retrieval";
+import { HASH_TINY_LEN } from "@polymorpha/business-logic";
 
-const STELLA_API_URL = "/api/stella/chat";
+const STELLA_API_URL = STELLA_CHAT_PATH;
 
 const SYSTEM_PROMPT = [
   "You are Stella, a helpful statistics and data analysis assistant for Polymorpha.",
@@ -75,7 +85,7 @@ export class BrainService {
       await this.init(workspaceId);
       let contextStr = "";
       try {
-        const effectiveWsId = workspaceId ?? "guest";
+        const effectiveWsId = workspaceId ?? SENTINEL_GUEST;
         const notebookId = context?.notebookId;
 
         let notebookContextStr = "";
@@ -95,8 +105,8 @@ export class BrainService {
                 `Active Cell ${nbCtx.activeCell.index} [${nbCtx.activeCell.type}] status=${nbCtx.activeCell.status} title="${nbCtx.activeCell.metadata.title || ""}"`,
                 `Operation: ${nbCtx.activeCell.provenance.operation ?? "—"} columns: ${nbCtx.activeCell.provenance.columns?.join(", ") ?? "—"}`,
                 `Datasets: ${nbCtx.activeCell.datasetIds.join(", ") || "—"}`,
-                `Execution: inputHash=${nbCtx.activeCell.execution.inputHash.slice(0, 8)} outputHash=${nbCtx.activeCell.execution.outputHash?.slice(0, 8) ?? "—"}`,
-                `Outputs: ${nbCtx.activeCell.outputs.map((o) => `${o.type}:${o.metadata.title ?? ""} ${JSON.stringify(o.data).slice(0, 180)}`).join(" | ")}`,
+                `Execution: inputHash=${nbCtx.activeCell.execution.inputHash.slice(0, HASH_TINY_LEN)} outputHash=${nbCtx.activeCell.execution.outputHash?.slice(0, HASH_TINY_LEN) ?? "—"}`,
+                `Outputs: ${nbCtx.activeCell.outputs.map((o) => `${o.type}:${o.metadata.title ?? ""} ${JSON.stringify(o.data).slice(0, SNIPPET_BRAIN_OUTPUT)}`).join(" | ")}`,
                 nbCtx.precedingCells.length
                   ? `Preceding: ${nbCtx.precedingCells.map((c) => `Cell ${c.index} ${c.type} ${c.metadata.title ?? ""}`).join(" | ")}`
                   : "",
@@ -118,7 +128,7 @@ export class BrainService {
           kinds: context?.kinds,
           column: context?.column,
           datasetIds: context?.datasetIds,
-          limit: 12,
+          limit: RETRIEVAL_LIMIT_DATA,
           includeSystemKnowledge: true,
         });
 
@@ -127,12 +137,15 @@ export class BrainService {
         if (context?.datasetExpert) {
           const de = context.datasetExpert;
           const cols = de.columnTypes
-            .slice(0, 12)
+            .slice(0, RETRIEVAL_LIMIT_DATA)
             .map((c) => `${c.name}(${c.type})`)
             .join(", ");
-          const more = de.colCount > 12 ? ` +${de.colCount - 12} more` : "";
+          const more =
+            de.colCount > RETRIEVAL_LIMIT_DATA
+              ? ` +${de.colCount - RETRIEVAL_LIMIT_DATA} more`
+              : "";
           parts.push(
-            `[dataset_expert] Expert of dataset "${de.fileName}" — ${de.rowCount} rows × ${de.colCount} cols${de.cleaned ? " (cleaned)" : ""}${de.cleaningSummary ? ` — ${de.cleaningSummary}` : ""} — uploadId:${de.uploadId ?? "guest"} — columns: ${cols}${more}`,
+            `[dataset_expert] Expert of dataset "${de.fileName}" — ${de.rowCount} rows × ${de.colCount} cols${de.cleaned ? " (cleaned)" : ""}${de.cleaningSummary ? ` — ${de.cleaningSummary}` : ""} — uploadId:${de.uploadId ?? SENTINEL_GUEST} — columns: ${cols}${more}`,
           );
         } else if (context?.datasetIds && context.datasetIds.length > 0) {
           parts.push(

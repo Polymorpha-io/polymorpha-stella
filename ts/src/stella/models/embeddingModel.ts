@@ -1,5 +1,15 @@
 import { pipeline, type FeatureExtractionPipeline } from "@xenova/transformers";
 import { EMBED_MODEL, EMBED_CHUNK_TOKENS, EMBED_DIM } from "../../config";
+import {
+  CHAR_OVERLAP_FALLBACK,
+  CHARS_PER_TOKEN,
+  TOKEN_OVERLAP,
+} from "../../config/chunking";
+import {
+  EMBED_NORMALIZE,
+  EMBED_PIPELINE_TASK,
+  EMBED_POOLING,
+} from "../../config/models";
 
 let pipe: FeatureExtractionPipeline | null = null;
 let tokenizer: unknown | null = null;
@@ -10,7 +20,7 @@ export async function loadEmbeddingModel(): Promise<void> {
   if (pipe) return;
   if (loadingPromise) return loadingPromise;
   loadingPromise = (async () => {
-    pipe = await pipeline("feature-extraction", EMBED_MODEL as never);
+    pipe = await pipeline(EMBED_PIPELINE_TASK, EMBED_MODEL as never);
     // G24 §8: tokenizer from same library when available — validates EMBED_CHUNK_TOKENS per model
     try {
       const mod = await import("@xenova/transformers");
@@ -41,7 +51,7 @@ export function chunkText(
   maxTokens: number = EMBED_CHUNK_TOKENS,
 ): string[] {
   if (!text) return [];
-  const approxCharsPerToken = 4;
+  const approxCharsPerToken = CHARS_PER_TOKEN;
   const maxChars = maxTokens * approxCharsPerToken;
   if (text.length <= maxChars) return [text];
   // If tokenizer available with encode, use token boundaries
@@ -56,8 +66,8 @@ export function chunkText(
         : ((encoded as { input_ids?: number[] })?.input_ids ?? []);
       if (ids.length > 0 && ids.length > maxTokens) {
         const chunks: string[] = [];
-        // Overlap 50 tokens for continuity G21 sliding window
-        const stride = Math.max(1, maxTokens - 50);
+        // Overlap TOKEN_OVERLAP tokens for continuity G21 sliding window
+        const stride = Math.max(1, maxTokens - TOKEN_OVERLAP);
         // Fallback to char slicing aligned to token stride when decode not available
         const decode = (
           tok as unknown as { decode?: (ids: number[]) => string }
@@ -77,7 +87,7 @@ export function chunkText(
     // fall through to char window
   }
   const chunks: string[] = [];
-  const overlap = 200;
+  const overlap = CHAR_OVERLAP_FALLBACK;
   const step = Math.max(1, maxChars - overlap);
   for (let i = 0; i < text.length; i += step) {
     chunks.push(text.slice(i, i + maxChars));
@@ -97,8 +107,8 @@ export function getEmbeddingModelId(): string {
 export async function embed(text: string): Promise<Float32Array> {
   await loadEmbeddingModel();
   const result = await pipe!(text, {
-    pooling: "mean",
-    normalize: true,
+    pooling: EMBED_POOLING,
+    normalize: EMBED_NORMALIZE,
   } as never);
   const data = result.data as Float32Array;
   return data.slice();

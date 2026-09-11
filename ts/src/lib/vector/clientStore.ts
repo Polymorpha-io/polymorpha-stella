@@ -3,12 +3,20 @@
  * Mirrors CacheService T3 openDB/LRU/cross-tab but indexed by uid:vector:contentHash:chunkId
  * Separate quota 20MB from datasets 50MB to avoid LRU pollution (G18).
  */
-import { EMBED_VECTOR_MAX_BYTES, EMBED_VECTOR_MAX_ENTRIES } from "../../config";
+import {
+  EMBED_VECTOR_MAX_BYTES,
+  EMBED_VECTOR_MAX_ENTRIES,
+} from "../../config";
+import {
+  CACHE_HIGH_WATERMARK,
+  CACHE_LOW_WATERMARK,
+} from "@polymorpha/business-logic";
+import { IDB_VECTORS, VECTOR_CACHE_OVERHEAD } from "../../config/knowledge";
 import type { VectorRecord } from "./VectorStore";
 
-const DB_NAME = "polymorpha-vectors";
-const DB_VERSION = 1;
-const STORE = "vectors";
+const DB_NAME = IDB_VECTORS.db;
+const DB_VERSION = IDB_VECTORS.version;
+const STORE = IDB_VECTORS.store;
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -38,7 +46,7 @@ function vectorKey(uid: string, contentHash: string, chunkId: string): string {
 }
 
 function estimateBytes(rec: VectorRecord): number {
-  return (rec.embedding?.byteLength ?? 0) + rec.text.length * 2 + 300;
+  return (rec.embedding?.byteLength ?? 0) + rec.text.length * 2 + VECTOR_CACHE_OVERHEAD;
 }
 
 export async function putVectors(
@@ -242,7 +250,7 @@ async function trimIfNeeded(): Promise<void> {
     if (total <= EMBED_VECTOR_MAX_BYTES) return;
   }
   all.sort((a, b) => a.ts - b.ts);
-  const targetCount = Math.floor(EMBED_VECTOR_MAX_ENTRIES * 0.8);
+  const targetCount = Math.floor(EMBED_VECTOR_MAX_ENTRIES * CACHE_HIGH_WATERMARK);
   const overCount = Math.max(0, all.length - targetCount);
   const toRemove = all.slice(0, overCount);
   if (toRemove.length === 0) {
@@ -254,7 +262,7 @@ async function trimIfNeeded(): Promise<void> {
     for (const e of all) {
       removed += estimateBytes(e as VectorRecord);
       toRemove.push(e);
-      if (total - removed <= EMBED_VECTOR_MAX_BYTES * 0.5) break;
+      if (total - removed <= EMBED_VECTOR_MAX_BYTES * CACHE_LOW_WATERMARK) break;
     }
   }
   if (toRemove.length === 0) return;

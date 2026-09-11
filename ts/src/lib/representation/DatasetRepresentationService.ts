@@ -14,8 +14,24 @@ import type {
   DataRepresentativeSample,
   SelectionPolicy,
 } from "./types";
-import { hashString } from "@polymorpha/business-logic";
-import { EMBED_SAMPLING_VERSION, EMBED_SAMPLING_SEED } from "../../config";
+import { hashString, HASH_SHORT_LEN } from "@polymorpha/business-logic";
+import {
+  EMBED_SAMPLING_VERSION,
+  EMBED_SAMPLING_SEED,
+  EMBED_DATA_SAMPLE_N,
+} from "../../config";
+import { RETRIEVAL_LIMIT_DATA } from "../../config/retrieval";
+import {
+  EXACT_MAX_ROWS,
+  HEAD_TAIL_MAX,
+  HEAD_TAIL_PCT,
+  RARE_CATEGORY_TOP,
+  REPRESENTATIVE_MAX_ROWS,
+  SAMPLE_FORMULA_BASE,
+  SAMPLE_FORMULA_CAP,
+  SAMPLE_FORMULA_DIVISOR,
+} from "../../config/sampling";
+import { SNIPPET_REP } from "../../config/knowledge";
 
 const STRATEGY_VERSION = EMBED_SAMPLING_VERSION;
 
@@ -100,7 +116,7 @@ export function buildColumnSemanticEmbeddings(
   uploadId: string,
   contentHash: string,
   profile: RagDatasetProfile["perColumn"],
-  limit = 12,
+  limit = RETRIEVAL_LIMIT_DATA,
 ): ColumnSemanticEmbedding[] {
   if (!profile) return [];
   // Only first `limit` get rich stats; caller will create header-only for remainder via fallback helper.
@@ -160,19 +176,19 @@ export async function buildDataRepresentativeEmbeddings(
   profile: RagDatasetProfile["perColumn"],
   opts: { mode: RepresentationMode; sampleN: number } = {
     mode: "representative",
-    sampleN: 200,
+    sampleN: EMBED_DATA_SAMPLE_N,
   },
 ): Promise<DataRepresentativeEmbedding[]> {
   const n = dataset.rows.length;
   const sampleN = opts.mode === "exact" ? n : Math.min(opts.sampleN, n);
   const seed = await hashString(seedFor(datasetId, contentHash)).catch(() =>
-    seedFor(datasetId, contentHash).slice(0, 12),
+    seedFor(datasetId, contentHash).slice(0, HASH_SHORT_LEN),
   );
   const sample: DataRepresentativeSample = {
     n: sampleN,
     method: "stratified",
     coverage: opts.mode === "exact" ? "exact" : "sample",
-    seed: String(seed).slice(0, 12),
+    seed: String(seed).slice(0, HASH_SHORT_LEN),
     strategyVersion: STRATEGY_VERSION,
   };
 
@@ -180,7 +196,10 @@ export async function buildDataRepresentativeEmbeddings(
   // v1 sampling: 20-30 head/tail + 120-140 stratified quantile-aware + 30-40 categorical/rare
   // For brevity, implement deterministic head/tail + quantile + rare, not full density
   const indices: number[] = [];
-  const headTail = Math.min(15, Math.floor(sampleN * 0.15));
+  const headTail = Math.min(
+    HEAD_TAIL_MAX,
+    Math.floor(sampleN * HEAD_TAIL_PCT),
+  );
   for (let i = 0; i < Math.min(headTail, n); i++) indices.push(i);
   for (let i = Math.max(0, n - headTail); i < n; i++)
     if (!indices.includes(i)) indices.push(i);
@@ -213,7 +232,7 @@ export async function buildDataRepresentativeEmbeddings(
       );
     const rare = [...freq.entries()]
       .sort((a, b) => a[1] - b[1])
-      .slice(0, 5)
+      .slice(0, RARE_CATEGORY_TOP)
       .map(([v]) => v);
     for (const rv of rare) {
       const idx = dataset.rows.findIndex(
@@ -240,7 +259,7 @@ export async function buildDataRepresentativeEmbeddings(
       .map(([k, v]) => `${k}: ${v}`)
       .join(" | ");
     const chunkHash = await hashString(
-      `${contentHash}:${idx}:${text.slice(0, 50)}`,
+      `${contentHash}:${idx}:${text.slice(0, SNIPPET_REP)}`,
     ).catch(() => `${contentHash}-${idx}`);
     results.push({
       kind: "data_representative",
@@ -248,7 +267,7 @@ export async function buildDataRepresentativeEmbeddings(
       uploadId,
       contentHash,
       chunkId: `row-${idx}`,
-      chunkHash: String(chunkHash).slice(0, 12),
+      chunkHash: String(chunkHash).slice(0, HASH_SHORT_LEN),
       text,
       metadata: {
         source: "derived-data",
@@ -263,7 +282,7 @@ export async function buildDataRepresentativeEmbeddings(
 }
 
 export function getSelectionPolicy(rowCount: number): SelectionPolicy {
-  if (rowCount <= 1000) {
+  if (rowCount <= EXACT_MAX_ROWS) {
     return {
       mode: "exact",
       sampleN: rowCount,
@@ -276,12 +295,18 @@ export function getSelectionPolicy(rowCount: number): SelectionPolicy {
       },
     };
   }
-  if (rowCount <= 5000) {
+  if (rowCount <= REPRESENTATIVE_MAX_ROWS) {
     return {
       mode: "representative",
-      sampleN: Math.min(400 + Math.floor(rowCount / 10), 1000),
+      sampleN: Math.min(
+        SAMPLE_FORMULA_BASE + Math.floor(rowCount / SAMPLE_FORMULA_DIVISOR),
+        SAMPLE_FORMULA_CAP,
+      ),
       sample: {
-        n: Math.min(400 + Math.floor(rowCount / 10), 1000),
+        n: Math.min(
+          SAMPLE_FORMULA_BASE + Math.floor(rowCount / SAMPLE_FORMULA_DIVISOR),
+          SAMPLE_FORMULA_CAP,
+        ),
         method: "stratified",
         coverage: "sample",
         seed: "auto",
@@ -291,9 +316,9 @@ export function getSelectionPolicy(rowCount: number): SelectionPolicy {
   }
   return {
     mode: "representative",
-    sampleN: 200,
+    sampleN: EMBED_DATA_SAMPLE_N,
     sample: {
-      n: 200,
+      n: EMBED_DATA_SAMPLE_N,
       method: "stratified",
       coverage: "sample",
       seed: "auto",

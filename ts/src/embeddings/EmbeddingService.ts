@@ -1,4 +1,4 @@
-import { EMBED_DIM } from "../config";
+import { EMBED_DIM, MODEL_NATIVE_DIM } from "../config";
 import {
   chunkText as modelChunkText,
   embed as modelEmbed,
@@ -16,8 +16,10 @@ export async function chunkText(text: string): Promise<string[]> {
 }
 
 export async function embed(text: string): Promise<EmbeddingVector> {
-  if (EMBED_DIM !== 384) {
-    console.warn(`[EmbeddingService] EMBED_DIM ${EMBED_DIM} != model 384`);
+  if (EMBED_DIM !== MODEL_NATIVE_DIM) {
+    console.warn(
+      `[EmbeddingService] EMBED_DIM ${EMBED_DIM} != model ${MODEL_NATIVE_DIM}`,
+    );
   }
   return modelEmbed(text);
 }

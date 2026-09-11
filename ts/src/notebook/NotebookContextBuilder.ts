@@ -3,6 +3,11 @@ import type { KnowledgeRecord } from "../knowledge/types";
 import type { KnowledgeKind } from "../knowledge/types";
 import { knowledgeService } from "../knowledge/KnowledgeService";
 import { notebookRepository } from "./NotebookRepository";
+import {
+  CONTEXT_PRECEDING_CELLS,
+  RETRIEVAL_LIMIT_DEFAULT,
+} from "../config/retrieval";
+import { TIMELINE_LABEL } from "../config/knowledge";
 
 export interface NotebookContext {
   activeCell?: NotebookCell;
@@ -54,7 +59,7 @@ export class NotebookContextBuilder {
           .filter(
             (c) => c.index < activeCell.index && c.status !== "superseded",
           )
-          .slice(-5)
+          .slice(-CONTEXT_PRECEDING_CELLS)
       : [];
 
     const relevantIds = new Set<string>();
@@ -69,7 +74,7 @@ export class NotebookContextBuilder {
     try {
       const effectiveDatasetIds =
         datasetIds ?? (datasetId ? [datasetId] : undefined);
-      const q = query ?? activeCell?.metadata.title ?? "recent operations";
+      const q = query ?? activeCell?.metadata.title ?? TIMELINE_LABEL;
       const results = await knowledgeService.search(q, {
         workspaceId,
         notebookId: notebook?.id,
@@ -78,7 +83,7 @@ export class NotebookContextBuilder {
         datasetIds: effectiveDatasetIds,
         kinds,
         column,
-        limit: 8,
+        limit: RETRIEVAL_LIMIT_DEFAULT,
         includeSystemKnowledge: true,
         includeSuperseded: false,
       });

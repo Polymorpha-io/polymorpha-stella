@@ -2,11 +2,12 @@
  * G24: Checked CacheService (T1/T2/T3 generic blob) + Dexie/idb-keyval — CacheService is key-value (datasets/blobs) without indexes (by_workspace/by_cell), cannot query notebooks by workspace efficiently. Reusing CacheService would require full scan. Custom IDB with indexed stores justified, pattern mirrors CacheService openDB/LRU/cross-tab principles. IndexedDB is standard.
  */
 import type { Notebook } from "./types";
+import { IDB_NOTEBOOKS } from "../config/knowledge";
 
-const DB_NAME = "polymorpha-notebooks";
-const DB_VERSION = 1;
-const STORE_NOTEBOOKS = "notebooks";
-const STORE_OUTPUTS = "outputs";
+const DB_NAME = IDB_NOTEBOOKS.db;
+const DB_VERSION = IDB_NOTEBOOKS.version;
+const STORE_NOTEBOOKS = IDB_NOTEBOOKS.stores.notebooks;
+const STORE_OUTPUTS = IDB_NOTEBOOKS.stores.outputs;
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {

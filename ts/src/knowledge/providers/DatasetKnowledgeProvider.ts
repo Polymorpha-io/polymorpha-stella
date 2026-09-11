@@ -6,7 +6,15 @@ import {
   EMBED_CHUNK_TOKENS,
   EMBED_PER_COLUMN_LIMIT,
   EMBED_DATA_SAMPLE_N,
+  EMBED_SAMPLING_SEED,
+  EMBED_SAMPLING_VERSION,
 } from "../../config";
+import {
+  DATASET_TOP_INSIGHTS,
+  DATASET_TOP_QUALITY,
+  SNIPPET_ID,
+  SNIPPET_PROFILE,
+} from "../../config/knowledge";
 import {
   buildDatasetProfileEmbedding,
   buildDatasetDescriptionEmbedding,
@@ -225,7 +233,7 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
               objective,
             );
             const shSynth = await sourceHash(
-              `${workspaceId}:${datasetId}:description:${synthetic.text.slice(0, 80)}`,
+              `${workspaceId}:${datasetId}:description:${synthetic.text.slice(0, SNIPPET_ID)}`,
             );
             out.push({
               id: `dataset:${datasetId}:description`,
@@ -280,7 +288,7 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
               .map(([k, v]) => `${k}:${v}`)
               .join(", ")}`;
           const sh = await sourceHash(
-            `${workspaceId}:${datasetId}:profile:${text.slice(0, 100)}`,
+            `${workspaceId}:${datasetId}:profile:${text.slice(0, SNIPPET_PROFILE)}`,
           );
           out.push({
             id: `dataset:${datasetId}:profile`,
@@ -328,7 +336,7 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
           }
           for (const col of headerOnly) {
             const sh = await sourceHash(
-              `${workspaceId}:${datasetId}:col:${col.columnName}:${col.text.slice(0, 80)}`,
+              `${workspaceId}:${datasetId}:col:${col.columnName}:${col.text.slice(0, SNIPPET_ID)}`,
             );
             out.push({
               id: `dataset:${datasetId}:col:${col.columnName}`,
@@ -369,7 +377,7 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
             );
           for (const col of colArtifacts) {
             const sh = await sourceHash(
-              `${workspaceId}:${datasetId}:col:${col.columnName}:${col.text.slice(0, 80)}`,
+              `${workspaceId}:${datasetId}:col:${col.columnName}:${col.text.slice(0, SNIPPET_ID)}`,
             );
             out.push({
               id: `dataset:${datasetId}:col:${col.columnName}`,
@@ -405,7 +413,7 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
             for (const col of remaining) {
               const text = `Column "${col.name}" is ${col.type}`;
               const sh = await sourceHash(
-                `${workspaceId}:${datasetId}:col:${col.name}:${text.slice(0, 80)}`,
+                `${workspaceId}:${datasetId}:col:${col.name}:${text.slice(0, SNIPPET_ID)}`,
               );
               out.push({
                 id: `dataset:${datasetId}:col:${col.name}`,
@@ -450,7 +458,7 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
           );
           for (const col of headerOnly) {
             const sh = await sourceHash(
-              `${workspaceId}:${datasetId}:col:${col.columnName}:${col.text.slice(0, 80)}`,
+              `${workspaceId}:${datasetId}:col:${col.columnName}:${col.text.slice(0, SNIPPET_ID)}`,
             );
             out.push({
               id: `dataset:${datasetId}:col:${col.columnName}`,
@@ -489,8 +497,8 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
             n: EMBED_DATA_SAMPLE_N,
             method: "stratified" as const,
             coverage: "sample" as const,
-            seed: "polymorpha-v1",
-            strategyVersion: "v1-head-tail-quantile-rare",
+            seed: EMBED_SAMPLING_SEED,
+            strategyVersion: EMBED_SAMPLING_VERSION,
           };
           let repRowIndices: number[][] = [];
 
@@ -543,12 +551,12 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
             profile.perColumn.length > 0
           ) {
             const synth = `Representative sample for ${datasetName} (${datasetId}): ${profile.perColumn
-              .slice(0, 5)
+              .slice(0, DATASET_TOP_INSIGHTS)
               .map(
                 (c) =>
                   `${c.name}(${c.type}) top ${
                     c.topK
-                      ?.slice(0, 3)
+                      ?.slice(0, DATASET_TOP_QUALITY)
                       .map((k) => `${k.value}`)
                       .join(", ") ?? "n/a"
                   }`,
@@ -561,7 +569,7 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
           for (let i = 0; i < repTexts.length; i++) {
             const text = repTexts[i];
             const sh = await sourceHash(
-              `${workspaceId}:${datasetId}:rep:${i}:${text.slice(0, 80)}`,
+              `${workspaceId}:${datasetId}:rep:${i}:${text.slice(0, SNIPPET_ID)}`,
             );
             out.push({
               id: `dataset:${datasetId}:rep:${i}`,

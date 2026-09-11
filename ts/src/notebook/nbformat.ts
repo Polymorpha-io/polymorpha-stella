@@ -6,6 +6,11 @@
  */
 
 import type { Notebook, NotebookCell } from "./types";
+import {
+  IPYNB_ERROR_TRUNCATE,
+  IPYNB_TRUNCATE,
+  SNIPPET_TITLE,
+} from "../config/knowledge";
 
 export interface IpynbCell {
   cell_type: "markdown" | "code";
@@ -90,7 +95,7 @@ function cellToIpynb(cell: NotebookCell): IpynbCell {
         return {
           output_type: "display_data" as const,
           data: {
-            "text/plain": JSON.stringify(o.data).slice(0, 2000),
+            "text/plain": JSON.stringify(o.data).slice(0, IPYNB_TRUNCATE),
             [mime]: o.data,
           },
           metadata: {},
@@ -110,20 +115,20 @@ function cellToIpynb(cell: NotebookCell): IpynbCell {
         return {
           output_type: "error" as const,
           ename: "CellError",
-          evalue: String(o.data).slice(0, 500),
-          traceback: [String(o.data).slice(0, 2000)],
+          evalue: String(o.data).slice(0, IPYNB_ERROR_TRUNCATE),
+          traceback: [String(o.data).slice(0, IPYNB_TRUNCATE)],
         };
       }
       if (o.type === "diff") {
         return {
           output_type: "display_data" as const,
-          data: { "text/plain": JSON.stringify(o.data).slice(0, 2000) },
+          data: { "text/plain": JSON.stringify(o.data).slice(0, IPYNB_TRUNCATE) },
           metadata: {},
         };
       }
       return {
         output_type: "display_data" as const,
-        data: { "text/plain": String(o.data).slice(0, 2000) },
+        data: { "text/plain": String(o.data).slice(0, IPYNB_TRUNCATE) },
         metadata: {},
       };
     });
@@ -197,7 +202,7 @@ export function fromIpynb(ipynb: IpynbNotebook, workspaceId: string): Notebook {
         metadata: {},
       })),
       metadata: {
-        title: sourceStr.split("\n")[0]?.replace(/^#\s*/, "").slice(0, 80),
+        title: sourceStr.split("\n")[0]?.replace(/^#\s*/, "").slice(0, SNIPPET_TITLE),
       },
       execution: {
         executionCount: (c.execution_count as number | null) ?? null,

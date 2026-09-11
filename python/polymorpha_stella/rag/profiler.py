@@ -16,6 +16,14 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+# Knowledge-plane truncations mirror ts/src/config/knowledge.ts (G33).
+# Values must stay in sync with SNIPPET_PROFILE/SNIPPET_ID/HASH_TRUNC there.
+SNIPPET_PROFILE = 100
+SNIPPET_ID = 80
+HASH_TRUNC = 16
+TOP_RELATIONSHIPS = 5
+TOP_COLUMN_VALUES = 2
+
 try:
     from polymorpha.rag.profiler import RagProfiler as _Base  # business-logic primitive
 except Exception as e:  # pragma: no cover
@@ -64,7 +72,7 @@ class StellaRagProfiler:
         ds = profile.get("dataset")
         if ds:
             text = f"Dataset {name} profile: {ds.get('rows', '?')} rows x{ds.get('cols', '?')} cols, duplicate {ds.get('duplicatePct', 0)}% ({ds.get('duplicateRows', 0)} rows)"
-            sh = hashlib.sha256(f"{workspace_id}:{dataset_id}:profile:{text[:100]}".encode()).hexdigest()[:16]
+            sh = hashlib.sha256(f"{workspace_id}:{dataset_id}:profile:{text[:SNIPPET_PROFILE]}".encode()).hexdigest()[:HASH_TRUNC]
             out.append(
                 {
                     "id": f"dataset:{dataset_id}:profile",
@@ -83,8 +91,8 @@ class StellaRagProfiler:
 
         for col in profile.get("perColumn") or []:
             cname = col.get("name", "unknown")
-            text = f"Column {cname} ({col.get('type','unknown')}): unique {col.get('unique',0)} missing {col.get('missingPct',0)}% top {col.get('topK',[])[:2]}"
-            sh = hashlib.sha256(f"{workspace_id}:{dataset_id}:col:{cname}:{text[:80]}".encode()).hexdigest()[:16]
+            text = f"Column {cname} ({col.get('type','unknown')}): unique {col.get('unique',0)} missing {col.get('missingPct',0)}% top {col.get('topK',[])[:TOP_COLUMN_VALUES]}"
+            sh = hashlib.sha256(f"{workspace_id}:{dataset_id}:col:{cname}:{text[:SNIPPET_ID]}".encode()).hexdigest()[:HASH_TRUNC]
             out.append(
                 {
                     "id": f"dataset:{dataset_id}:col:{cname}",
@@ -102,10 +110,10 @@ class StellaRagProfiler:
             )
 
         missing = profile.get("missing") or {}
-        for rel in (missing.get("missingTogether") or [])[:5]:
+        for rel in (missing.get("missingTogether") or [])[:TOP_RELATIONSHIPS]:
             a, b, corr = rel.get("a"), rel.get("b"), rel.get("correlation", 0)
             text = f'Relationship: columns "{a}" and "{b}" missing together (correlation {corr:.2f}) in {dataset_id}'
-            sh = hashlib.sha256(f"{workspace_id}:{dataset_id}:rel:{a}:{b}".encode()).hexdigest()[:16]
+            sh = hashlib.sha256(f"{workspace_id}:{dataset_id}:rel:{a}:{b}".encode()).hexdigest()[:HASH_TRUNC]
             out.append(
                 {
                     "id": f"rel:{dataset_id}:missingTogether:{a}:{b}",

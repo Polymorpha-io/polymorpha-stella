@@ -20,6 +20,6 @@ export interface EmbedRequest {
   namespace?: string;
 }
 
-export const DEFAULT_EMBEDDING_MODEL = "Xenova/all-MiniLM-L6-v2";
-export const DEFAULT_EMBEDDING_DIM = 384;
+export { EMBED_MODEL as DEFAULT_EMBEDDING_MODEL } from "../config";
+export { EMBED_DIM as DEFAULT_EMBEDDING_DIM } from "../config";
 export const DEFAULT_EMBEDDING_VERSION = "v1";

@@ -19,11 +19,23 @@ import {
   EMBED_SAMPLING_SEED,
   EMBED_DATA_SAMPLE_N,
 } from "../../config";
+import {
+  IDLE_CALLBACK_TIMEOUT_MS,
+  IDLE_FALLBACK_DELAY_MS,
+  RAG_PROFILE_TIMEOUT_MS,
+  STORAGE_BACKED_RESOLVE_MS,
+  HASH_SHORT_LEN,
+} from "@polymorpha/business-logic";
+import { EXACT_MAX_ROWS } from "../../config/sampling";
+import {
+  RAG_HASH_ROWS,
+  SENTINEL_SINGLE,
+} from "../../config/knowledge";
 import type { DataRepresentativeSample } from "./types";
 
 // simple hash for dataset identity (per G21 hashDataset truth, but lightweight here)
 async function hashDatasetLight(dataset: Dataset): Promise<string> {
-  const payload = `${dataset.fileName}:${dataset.columns.map((c) => `${c.name}:${c.type}`).join(",")}:${dataset.rows.length}:${JSON.stringify(dataset.rows.slice(0, 3))}`;
+  const payload = `${dataset.fileName}:${dataset.columns.map((c) => `${c.name}:${c.type}`).join(",")}:${dataset.rows.length}:${JSON.stringify(dataset.rows.slice(0, RAG_HASH_ROWS))}`;
   if (typeof crypto !== "undefined" && crypto.subtle) {
     try {
       const enc = new TextEncoder().encode(payload);
@@ -31,7 +43,7 @@ async function hashDatasetLight(dataset: Dataset): Promise<string> {
       const hex = Array.from(new Uint8Array(buf))
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("")
-        .slice(0, 12);
+        .slice(0, HASH_SHORT_LEN);
       return `h${hex}_${dataset.rows.length}_${dataset.columns.length}`;
     } catch {
       // fallthrough
@@ -52,8 +64,10 @@ function nextIdle(): Promise<void> {
       ) => number;
     };
     if (w.requestIdleCallback)
-      w.requestIdleCallback(() => resolve(), { timeout: 50 });
-    else setTimeout(() => resolve(), 16);
+      w.requestIdleCallback(() => resolve(), {
+        timeout: IDLE_CALLBACK_TIMEOUT_MS,
+      });
+    else setTimeout(() => resolve(), IDLE_FALLBACK_DELAY_MS);
   });
 }
 
@@ -96,7 +110,7 @@ function resolveUploadId(dataset: Dataset): string | null {
 
 function buildSampleMeta(dataset: Dataset): DataRepresentativeSample {
   const n = dataset.rows.length;
-  const isExact = n <= EMBED_DATA_SAMPLE_N && n > 0 && n <= 1000;
+  const isExact = n <= EMBED_DATA_SAMPLE_N && n > 0 && n <= EXACT_MAX_ROWS;
   return {
     n: isExact ? n : Math.min(EMBED_DATA_SAMPLE_N, n),
     method: "stratified",
@@ -111,7 +125,7 @@ export async function profileDatasetStreaming(
   opts?: { uploadId?: string | null; contentHash?: string | null },
 ): Promise<void> {
   const hash = await hashDatasetLight(dataset);
-  const uploadId = opts?.uploadId ?? resolveUploadId(dataset) ?? "__single__";
+  const uploadId = opts?.uploadId ?? resolveUploadId(dataset) ?? SENTINEL_SINGLE;
   const store = useRagStore.getState();
 
   // G23: per-dataset dedup — no global overwrite
@@ -132,7 +146,7 @@ export async function profileDatasetStreaming(
   try {
     useRagStore
       .getState()
-      .setActiveUpload(uploadId === "__single__" ? null : uploadId);
+      .setActiveUpload(uploadId === SENTINEL_SINGLE ? null : uploadId);
   } catch {}
 
   store.startProfiling(hash, uploadId);
@@ -182,7 +196,7 @@ export async function profileDatasetStreaming(
     const sb = sbCtx
       ? await withTimeout(
           resolveStorageBacked(sbCtx),
-          3000,
+          STORAGE_BACKED_RESOLVE_MS,
           "resolveStorageBacked",
         ).catch(() => null)
       : null;
@@ -199,7 +213,7 @@ export async function profileDatasetStreaming(
           { fileName: dataset.fileName },
           { contentHash: sb.contentHash ?? opts?.contentHash ?? undefined },
         ),
-        30000,
+        RAG_PROFILE_TIMEOUT_MS,
         "ragProfile storagePath",
       );
     } else {
@@ -207,7 +221,7 @@ export async function profileDatasetStreaming(
         callStatsApi<Record<string, unknown>>("ragProfile", dataset.rows, {
           fileName: dataset.fileName,
         }),
-        30000,
+        RAG_PROFILE_TIMEOUT_MS,
         "ragProfile rows",
       );
     }

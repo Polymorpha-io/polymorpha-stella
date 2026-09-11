@@ -1,4 +1,4 @@
-import { hashString } from "@polymorpha/business-logic";
+import { hashString, HASH_PREFIX_LEN } from "@polymorpha/business-logic";
 
 /**
  * sourceHash — single canonical content hash for KnowledgeRecord ids.
@@ -13,7 +13,7 @@ import { hashString } from "@polymorpha/business-logic";
 export async function sourceHash(text: string): Promise<string> {
   try {
     const hex = await hashString(text);
-    return hex.slice(0, 16);
+    return hex.slice(0, HASH_PREFIX_LEN);
   } catch {
     let h = 5381;
     for (let i = 0; i < text.length; i++)
