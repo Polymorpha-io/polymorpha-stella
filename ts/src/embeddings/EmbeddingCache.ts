@@ -2,12 +2,12 @@
  * G24: Checked CacheService T3 (datasets/blobs, hash→Dataset) — embeddings are Float32Array vectors keyed by modelVersion+textHash, not Datasets; reusing CacheService would conflate 50MB dataset quota with 20MB vector quota and pollute LRU. Thin dedicated IDB mirrors CacheService LRU/inflight/openDB patterns.
  */
 import type { EmbeddingEntry } from "./types";
-import {
-  EMBED_CACHE_OVERHEAD,
-  IDB_EMBEDDINGS,
-} from "../config/knowledge";
+import { EMBED_CACHE_OVERHEAD, IDB_EMBEDDINGS } from "../config/knowledge";
 import { CACHE_HIGH_WATERMARK } from "@polymorpha/business-logic";
+import { hashString, HASH_PREFIX_LEN } from "@polymorpha/business-logic";
 import { EMBED_VECTOR_MAX_BYTES, EMBED_VECTOR_MAX_ENTRIES } from "../config";
+import { EMBED_MODEL } from "../config";
+import { EMBED_CACHE_VERSION } from "../config/retrieval";
 
 const DB_NAME = IDB_EMBEDDINGS.db;
 const DB_VERSION = IDB_EMBEDDINGS.version;
@@ -216,3 +216,22 @@ export class EmbeddingCache {
 }
 
 export const embeddingCache = new EmbeddingCache();
+
+/**
+ * Canonical cache key for a text: `model:cacheVersion:contentHash`.
+ * Same shape as `EmbeddingEntry.embeddingKey` (`modelVersion:hash`).
+ * Bump `EMBED_CACHE_VERSION` to invalidate (S14); model swaps invalidate
+ * via the model segment. Falls back to length-suffixed key when hashing
+ * is unavailable (never throws — cache is best-effort).
+ */
+export async function buildEmbeddingKey(text: string): Promise<string> {
+  try {
+    const hex = await hashString(text);
+    return `${EMBED_MODEL}:${EMBED_CACHE_VERSION}:${hex.slice(0, HASH_PREFIX_LEN)}`;
+  } catch {
+    let h = 5381;
+    for (let i = 0; i < text.length; i++)
+      h = (Math.imul(33, h) ^ text.charCodeAt(i)) >>> 0;
+    return `${EMBED_MODEL}:${EMBED_CACHE_VERSION}:djb2-${h.toString(36)}-${text.length}`;
+  }
+}

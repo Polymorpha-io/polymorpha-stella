@@ -12,6 +12,8 @@ export const RETRIEVAL_LIMIT_DEFAULT = 8;
 export const RETRIEVAL_LIMIT_DATA = 12;
 /** Dictionary terms offered to the retrieval plane. */
 export const DICTIONARY_TERMS_LIMIT = 80;
+/** Dictionary records surviving query prefilter into the embedding stage. */
+export const DICTIONARY_QUERY_TOP = 12;
 /** Preceding notebook cells included as context. */
 export const CONTEXT_PRECEDING_CELLS = 5;
 /** Categorical insight cap per RAG pipeline. */
@@ -40,3 +42,17 @@ export const RAG_MIN_COMPOSITE_KEYS = 2;
 export const RAG_TOP_CANDIDATE_KEYS = 3;
 export const RELATIONSHIP_MISSING_TOP = 10;
 export const RELATIONSHIP_LIST_TOP = 5;
+
+/** Stella chat-harness budgets (Phase 1 hardening — bounds per-turn tokens). */
+/** Max history messages forwarded to the LLM (most recent first). */
+export const STELLA_HISTORY_LIMIT = 20;
+/** Completion cap sent as `max_tokens` (worker passthrough honors it). */
+export const STELLA_MAX_TOKENS = 800;
+/** Chat fetch timeout applied when the caller supplies no signal. */
+export const STELLA_REQUEST_TIMEOUT_MS = 60_000;
+/** Retries on network-error/5xx only (never abort/4xx/mid-stream). */
+export const STELLA_MAX_RETRIES = 1;
+/** Base delay before the single retry. */
+export const STELLA_RETRY_BASE_MS = 500;
+/** EmbeddingCache namespace — bump to invalidate cached vectors (S14). */
+export const EMBED_CACHE_VERSION = "v1";

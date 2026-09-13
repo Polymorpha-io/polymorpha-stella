@@ -1,6 +1,7 @@
 import type { GroqModel, IStellaClient, IStellaMessage } from "./types";
 import { DEFAULT_GROQ_MODEL } from "./types";
 import { BrainService } from "./brain/BrainService";
+import type { AnswerStreamingOptions } from "./brain/BrainService";
 import type { KnowledgeKind } from "../knowledge/types";
 
 export type StellaStreamCallbacks = {
@@ -8,6 +9,9 @@ export type StellaStreamCallbacks = {
   onDone: (full: string) => void;
   onError: (err: Error) => void;
 };
+
+/** Per-request harness overrides — re-exported from BrainService. */
+export type StellaRequestOptions = AnswerStreamingOptions;
 
 export interface DatasetExpertContext {
   fileName: string;
@@ -95,6 +99,7 @@ export class StellaService implements IStellaClient {
     content: string,
     model: GroqModel = DEFAULT_GROQ_MODEL,
     callbacks?: StellaStreamCallbacks,
+    opts?: StellaRequestOptions,
   ): Promise<IStellaMessage> {
     if (callbacks) {
       const replyContent = await new Promise<string>((resolve, reject) => {
@@ -115,6 +120,7 @@ export class StellaService implements IStellaClient {
           this.getStellaContext() as unknown as Parameters<
             BrainService["answerStreaming"]
           >[7],
+          opts,
         );
       });
       return { role: "assistant", content: replyContent };
@@ -133,6 +139,7 @@ export class StellaService implements IStellaClient {
           this.getStellaContext() as unknown as Parameters<
             BrainService["answerStreaming"]
           >[7],
+          opts,
         );
       });
       return { role: "assistant", content: reply };

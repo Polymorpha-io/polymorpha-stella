@@ -67,9 +67,13 @@ export {
   StellaService,
   type StellaStreamCallbacks,
   type StellaContext as ServiceStellaContext,
+  type StellaRequestOptions,
 } from "./stella/StellaService";
 export { BrainService } from "./stella/brain/BrainService";
-export type { StellaContext as BrainStellaContext } from "./stella/brain/BrainService";
+export type {
+  StellaContext as BrainStellaContext,
+  AnswerStreamingOptions,
+} from "./stella/brain/BrainService";
 export * from "./stella/brain/Embedder";
 export * from "./stella/models/embeddingModel";
 

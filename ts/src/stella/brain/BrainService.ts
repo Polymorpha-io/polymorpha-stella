@@ -16,6 +16,11 @@ import {
 import {
   RETRIEVAL_LIMIT_DATA,
   RETRIEVAL_LIMIT_DEFAULT,
+  STELLA_HISTORY_LIMIT,
+  STELLA_MAX_RETRIES,
+  STELLA_MAX_TOKENS,
+  STELLA_REQUEST_TIMEOUT_MS,
+  STELLA_RETRY_BASE_MS,
 } from "../../config/retrieval";
 import { HASH_TINY_LEN } from "@polymorpha/business-logic";
 
@@ -56,6 +61,16 @@ export interface StellaContext {
   datasetExpert?: DatasetExpertContext | null;
 }
 
+/** Per-request harness overrides (all optional — constants are the default). */
+export interface AnswerStreamingOptions {
+  /** Caller abort (e.g. UI cancel). Combined with the request timeout. */
+  signal?: AbortSignal;
+  /** Completion cap override. */
+  maxTokens?: number;
+  /** History window override (most recent N messages forwarded). */
+  historyLimit?: number;
+}
+
 export class BrainService {
   private initialized = false;
   private initializedWorkspaceId: string | null = null;
@@ -71,6 +86,40 @@ export class BrainService {
     this.initializedWorkspaceId = null;
   }
 
+  /**
+   * POST the chat body with a single retry on network-error/5xx.
+   * Never retries aborts, 4xx, or mid-stream failures (partial SSE is
+   * unresumable). Throws AbortError unchanged for caller mapping.
+   */
+  private async postChatWithRetry(
+    body: string,
+    signal: AbortSignal,
+  ): Promise<Response> {
+    let attempt = 0;
+    for (;;) {
+      let res: Response;
+      try {
+        res = await fetch(STELLA_API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          signal,
+        });
+      } catch (err) {
+        if (isAbortError(err) || attempt >= STELLA_MAX_RETRIES) throw err;
+        attempt++;
+        await sleep(STELLA_RETRY_BASE_MS);
+        continue;
+      }
+      if (res.status >= 500 && attempt < STELLA_MAX_RETRIES) {
+        attempt++;
+        await sleep(STELLA_RETRY_BASE_MS);
+        continue;
+      }
+      return res;
+    }
+  }
+
   async answerStreaming(
     messages: IStellaMessage[],
     content: string,
@@ -80,6 +129,7 @@ export class BrainService {
     onDone: (full: string) => void,
     onError: (err: Error) => void,
     context?: StellaContext,
+    opts?: AnswerStreamingOptions,
   ): Promise<void> {
     try {
       await this.init(workspaceId);
@@ -184,17 +234,29 @@ export class BrainService {
       const systemContent = contextStr
         ? `${systemPrompt}\n\nContext (Knowledge plane — notebook + dataset + relationship, use when relevant):\n${contextStr}`
         : systemPrompt;
+      // History window: full sessions grow linearly — forward the tail only.
+      const historyLimit = opts?.historyLimit ?? STELLA_HISTORY_LIMIT;
+      const history =
+        historyLimit >= 0 ? messages.slice(-historyLimit) : messages;
       const stellaMessages: Array<{ role: string; content: string }> = [
         { role: "system", content: systemContent },
-        ...messages.map((m) => ({ role: m.role, content: m.content })),
+        ...history.map((m) => ({ role: m.role, content: m.content })),
         { role: "user", content },
       ];
-
-      const res = await fetch(STELLA_API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: stellaMessages, model, stream: true }),
+      const requestBody = JSON.stringify({
+        messages: stellaMessages,
+        model,
+        stream: true,
+        max_tokens: opts?.maxTokens ?? STELLA_MAX_TOKENS,
       });
+
+      // Caller signal (cancel) + request timeout, whichever fires first.
+      const timeoutSignal = AbortSignal.timeout(STELLA_REQUEST_TIMEOUT_MS);
+      const signal = opts?.signal
+        ? AbortSignal.any([opts.signal, timeoutSignal])
+        : timeoutSignal;
+
+      const res = await this.postChatWithRetry(requestBody, signal);
 
       if (!res.ok) {
         const errText = await res.text().catch(() => "Unknown error");
@@ -289,7 +351,24 @@ export class BrainService {
       }
       onDone(full);
     } catch (err) {
+      if (isAbortError(err)) {
+        onError(new Error("Stella request cancelled"));
+        return;
+      }
       onError(err instanceof Error ? err : new Error(String(err)));
     }
   }
+}
+
+function isAbortError(err: unknown): boolean {
+  return (
+    (typeof DOMException !== "undefined" &&
+      err instanceof DOMException &&
+      err.name === "AbortError") ||
+    (err instanceof Error && err.name === "AbortError")
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

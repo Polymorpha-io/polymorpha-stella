@@ -9,6 +9,13 @@ import {
   embeddingService,
   cosineSimilarity,
 } from "../embeddings/EmbeddingService";
+import {
+  embeddingCache,
+  buildEmbeddingKey,
+} from "../embeddings/EmbeddingCache";
+import type { EmbeddingEntry } from "../embeddings/types";
+import { EMBED_MODEL } from "../config";
+import { EMBED_CACHE_VERSION } from "../config/retrieval";
 import { knowledgeExtractor } from "./KnowledgeExtractor";
 import type { Notebook } from "../notebook/types";
 import { notebookRepository } from "../notebook/NotebookRepository";
@@ -16,6 +23,7 @@ import { DatasetKnowledgeProvider } from "./providers/DatasetKnowledgeProvider";
 import { RelationshipKnowledgeProvider } from "./providers/RelationshipKnowledgeProvider";
 import { DICTIONARY_TERMS } from "@polymorpha/business-logic";
 import {
+  DICTIONARY_QUERY_TOP,
   DICTIONARY_TERMS_LIMIT,
   RETRIEVAL_LIMIT_DATA,
   RETRIEVAL_LIMIT_DEFAULT,
@@ -30,9 +38,40 @@ export interface KnowledgeProvider {
   ): Promise<KnowledgeRecord[]>;
 }
 
+/**
+ * Keyword prefilter over dictionary terms (no embeddings spent).
+ * Scores by query-token overlap against term+definition+category; stable
+ * sort preserves the curated order on ties/zero overlap, so a query with
+ * no lexical match degrades to the previous first-N bias — never a cliff.
+ */
+function rankDictionaryTerms(
+  query: string,
+  terms: typeof DICTIONARY_TERMS,
+): typeof DICTIONARY_TERMS {
+  const tokens = query
+    .toLowerCase()
+    .split(/[^a-z0-9+#-]+/)
+    .filter((t) => t.length > 1);
+  if (tokens.length === 0) return [...terms];
+  const scored = terms.map((t) => {
+    const hay =
+      `${t.term} ${t.definition} ${t.quickTake ?? ""} ${t.category}`.toLowerCase();
+    let hits = 0;
+    for (const tok of tokens) if (hay.includes(tok)) hits++;
+    return { t, hits };
+  });
+  scored.sort((a, b) => b.hits - a.hits);
+  return scored.map((s) => s.t);
+}
+
 class DictionaryKnowledgeProvider implements KnowledgeProvider {
-  async provide(): Promise<KnowledgeRecord[]> {
-    return DICTIONARY_TERMS.slice(0, DICTIONARY_TERMS_LIMIT).map((t) => ({
+  async provide(query = ""): Promise<KnowledgeRecord[]> {
+    const terms = DICTIONARY_TERMS.slice(0, DICTIONARY_TERMS_LIMIT);
+    const ranked = rankDictionaryTerms(query, terms).slice(
+      0,
+      DICTIONARY_QUERY_TOP,
+    );
+    return ranked.map((t) => ({
       id: `dict::${t.id}`,
       workspaceId: "system",
       notebookId: "system",
@@ -132,7 +171,9 @@ export class KnowledgeService {
     const texts = records.map((r) => r.text);
     if (texts.length) {
       try {
-        await embeddingService.embedMany(texts);
+        // Pre-warm both the model and the cache so later searches hit.
+        const { vectors } = await embeddingService.embedMany(texts);
+        this.cacheVectors(texts, vectors);
       } catch {
         /* non-critical */
       }
@@ -199,7 +240,7 @@ export class KnowledgeService {
     }
 
     if (n.includeSystemKnowledge) {
-      const dict = await this.dictProvider.provide().catch(() => []);
+      const dict = await this.dictProvider.provide(query).catch(() => []);
       candidates.push(...dict);
     }
 
@@ -263,7 +304,7 @@ export class KnowledgeService {
 
     let queryVec: Float32Array | null = null;
     try {
-      queryVec = await embeddingService.embed(query);
+      [queryVec] = await this.embedTextsCached([query]);
     } catch {
       return candidates
         .slice(0, n.limit)
@@ -273,8 +314,7 @@ export class KnowledgeService {
     const texts = candidates.map((c) => c.text);
     let vectors: Float32Array[] = [];
     try {
-      const res = await embeddingService.embedMany(texts);
-      vectors = res.vectors;
+      vectors = await this.embedTextsCached(texts);
     } catch {
       return candidates
         .slice(0, n.limit)
@@ -324,6 +364,65 @@ export class KnowledgeService {
 
     scored.sort((a, b) => b.score - a.score);
     return scored.slice(0, n.limit);
+  }
+
+  /**
+   * Embed with EmbeddingCache read-through: per-query cost drops from
+   * 1+N model forwards to 1+misses. Hits also refresh LRU via rewrite.
+   * Throws on model failure (callers fall back to SCORE_FALLBACK slice).
+   */
+  private async embedTextsCached(texts: string[]): Promise<Float32Array[]> {
+    const keys = await Promise.all(texts.map((t) => buildEmbeddingKey(t)));
+    const out = new Array<Float32Array | null>(texts.length).fill(null);
+    const missIdx: number[] = [];
+    await Promise.all(
+      keys.map(async (k, i) => {
+        const hit = await embeddingCache.get(k);
+        if (hit) out[i] = hit.vector;
+        else missIdx.push(i);
+      }),
+    );
+    if (missIdx.length > 0) {
+      const { vectors } = await embeddingService.embedMany(
+        missIdx.map((i) => texts[i]),
+      );
+      missIdx.forEach((origI, m) => {
+        out[origI] = vectors[m];
+      });
+      this.cacheVectors(
+        missIdx.map((i) => texts[i]),
+        vectors,
+        missIdx.map((i) => keys[i]),
+      );
+    }
+    return out as Float32Array[];
+  }
+
+  /** Fire-and-forget cache populate (best-effort — never throws). */
+  private cacheVectors(
+    texts: string[],
+    vectors: Float32Array[],
+    keys?: string[],
+  ): void {
+    void (async () => {
+      try {
+        const resolvedKeys =
+          keys ?? (await Promise.all(texts.map((t) => buildEmbeddingKey(t))));
+        const now = Date.now();
+        const entries: EmbeddingEntry[] = texts.map((_, i) => ({
+          embeddingKey: resolvedKeys[i],
+          model: EMBED_MODEL,
+          version: EMBED_CACHE_VERSION,
+          dimension: vectors[i]?.length ?? 0,
+          vector: vectors[i],
+          createdAt: now,
+          lastAccessedAt: now,
+        }));
+        await embeddingCache.setMany(entries);
+      } catch {
+        /* cache is best-effort */
+      }
+    })();
   }
 
   async getByCell(cellId: string): Promise<KnowledgeRecord[]> {
