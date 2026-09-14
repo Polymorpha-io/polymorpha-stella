@@ -19,6 +19,7 @@ import { knowledgeStore } from "@/knowledge/KnowledgeStore";
 import { notebookRepository } from "@/notebook/NotebookRepository";
 import { BrainService } from "@/stella/brain/BrainService";
 import { selectHistoryWindow } from "@/stella/brain/BrainService";
+import type { StellaEvent } from "@/stella/brain/BrainService";
 import { StellaService } from "@/stella/StellaService";
 import type { IStellaMessage } from "@/stella/types";
 
@@ -276,6 +277,34 @@ describe("BrainService harness budgets", () => {
     const { body } = captureBody();
     expect(body.messages).toHaveLength(1 + 1 + 1);
     expect(body.max_tokens).toBe(11);
+  });
+
+  it("forwards harness events through callbacks.onEvent", async () => {
+    const service = new StellaService();
+    service.setContext("ws-harness");
+    const events: StellaEvent[] = [];
+    const callbacks = {
+      onToken: () => {},
+      onDone: () => {},
+      onError: (e: Error) => {
+        throw e;
+      },
+      onEvent: (e: StellaEvent) => events.push(e),
+    };
+    await service.sendMessage(
+      [],
+      "event forward probe",
+      "openai/gpt-oss-20b",
+      callbacks,
+    );
+    await service.sendMessage(
+      [],
+      "event forward probe",
+      "openai/gpt-oss-20b",
+      callbacks,
+    );
+    expect(events.some((e) => e.type === "llm_done")).toBe(true);
+    expect(events.some((e) => e.type === "cache_hit")).toBe(true);
   });
 });
 

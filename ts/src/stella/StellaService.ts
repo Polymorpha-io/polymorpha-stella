@@ -1,13 +1,15 @@
 import type { GroqModel, IStellaClient, IStellaMessage } from "./types";
 import { DEFAULT_GROQ_MODEL } from "./types";
 import { BrainService } from "./brain/BrainService";
-import type { AnswerStreamingOptions } from "./brain/BrainService";
+import type { AnswerStreamingOptions, StellaEvent } from "./brain/BrainService";
 import type { KnowledgeKind } from "../knowledge/types";
 
 export type StellaStreamCallbacks = {
   onToken: (token: string) => void;
   onDone: (full: string) => void;
   onError: (err: Error) => void;
+  /** Telemetry from the harness (cache hits, model, timings). */
+  onEvent?: (event: StellaEvent) => void;
 };
 
 /** Per-request harness overrides — re-exported from BrainService. */
@@ -101,6 +103,12 @@ export class StellaService implements IStellaClient {
     callbacks?: StellaStreamCallbacks,
     opts?: StellaRequestOptions,
   ): Promise<IStellaMessage> {
+    // Telemetry default: callbacks.onEvent flows through unless the caller
+    // overrode onEvent in opts.
+    const mergedOpts =
+      callbacks?.onEvent && !opts?.onEvent
+        ? { ...opts, onEvent: callbacks.onEvent }
+        : opts;
     if (callbacks) {
       const replyContent = await new Promise<string>((resolve, reject) => {
         this.brain.answerStreaming(
@@ -120,7 +128,7 @@ export class StellaService implements IStellaClient {
           this.getStellaContext() as unknown as Parameters<
             BrainService["answerStreaming"]
           >[7],
-          opts,
+          mergedOpts,
         );
       });
       return { role: "assistant", content: replyContent };
@@ -139,7 +147,7 @@ export class StellaService implements IStellaClient {
           this.getStellaContext() as unknown as Parameters<
             BrainService["answerStreaming"]
           >[7],
-          opts,
+          mergedOpts,
         );
       });
       return { role: "assistant", content: reply };
