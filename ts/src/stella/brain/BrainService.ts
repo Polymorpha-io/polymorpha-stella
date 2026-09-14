@@ -5,8 +5,26 @@
  */
 import type { GroqModel, IStellaMessage } from "../../stella/types";
 import { DEFAULT_GROQ_MODEL } from "../../stella/types";
+import { routeChatModel } from "../../stella/routing";
+import {
+  getCachedReply,
+  semanticCacheKey,
+  setCachedReply,
+} from "../../stella/semanticCache";
 import { knowledgeService } from "../../knowledge/KnowledgeService";
 import { notebookContextBuilder } from "../../notebook/NotebookContextBuilder";
+import {
+  expandQueryTerms,
+  mergeTermBags,
+} from "../../knowledge/queryExpansion";
+import {
+  assembleToolCalls,
+  executeToolCall,
+  getStellaTools,
+  type AssembledToolCall,
+  type ToolCallChunk,
+  type ToolExecContext,
+} from "./tools";
 import type { KnowledgeKind } from "../../knowledge/types";
 import {
   SENTINEL_GUEST,
@@ -14,13 +32,18 @@ import {
   STELLA_CHAT_PATH,
 } from "../../config/knowledge";
 import {
+  QUERY_LLM_EXPANSION_ENABLED,
+  QUERY_LLM_EXPANSION_MAX_TOKENS,
   RETRIEVAL_LIMIT_DATA,
   RETRIEVAL_LIMIT_DEFAULT,
   STELLA_HISTORY_LIMIT,
   STELLA_MAX_RETRIES,
   STELLA_MAX_TOKENS,
+  STELLA_MAX_TOOL_ITERS,
   STELLA_REQUEST_TIMEOUT_MS,
   STELLA_RETRY_BASE_MS,
+  STELLA_SEMANTIC_CACHE_ENABLED,
+  STELLA_TOOLS_ENABLED,
 } from "../../config/retrieval";
 import { HASH_TINY_LEN } from "@polymorpha/business-logic";
 
@@ -69,6 +92,31 @@ export interface AnswerStreamingOptions {
   maxTokens?: number;
   /** History window override (most recent N messages forwarded). */
   historyLimit?: number;
+  /** Model routing on/off (default on): complex queries upgrade to 120B. */
+  routeModel?: boolean;
+  /** Agentic tool loop on/off (default `STELLA_TOOLS_ENABLED`). */
+  tools?: boolean;
+  /** LLM rewrite terms for the BM25 bag (default off, extra call cost). */
+  llmExpansion?: boolean;
+  /** Telemetry hook — never throws (guarded internally). */
+  onEvent?: (event: StellaEvent) => void;
+}
+
+export type StellaEventType =
+  "cache_hit" | "rag_done" | "llm_done" | "tools_done";
+
+export interface StellaEvent {
+  type: StellaEventType;
+  /** Stage latency ms (rag_done/llm_done). */
+  ms?: number;
+  /** Resolved model (llm_done/cache_hit). */
+  model?: string;
+  /** Agentic tool iterations performed (llm_done). */
+  toolIters?: number;
+  /** Rough input size in tokens, chars/4 (llm_done). */
+  estInputTokens?: number;
+  /** RAG records stuffed into context (rag_done). */
+  ragHits?: number;
 }
 
 export class BrainService {
@@ -131,11 +179,48 @@ export class BrainService {
     context?: StellaContext,
     opts?: AnswerStreamingOptions,
   ): Promise<void> {
+    const emit = (event: StellaEvent) => {
+      try {
+        opts?.onEvent?.(event);
+      } catch {
+        /* telemetry never breaks chat */
+      }
+    };
     try {
       await this.init(workspaceId);
+      const effectiveWsId = workspaceId ?? SENTINEL_GUEST;
+      const resolvedModel =
+        opts?.routeModel === false
+          ? model
+          : routeChatModel(content, messages.length, model);
+      // Semantic cache: stable-context repeats skip RAG + LLM entirely.
+      const cacheable =
+        STELLA_SEMANTIC_CACHE_ENABLED &&
+        !context?.activeCellId &&
+        !context?.datasetExpert &&
+        !(context?.datasetIds && context.datasetIds.length > 0);
+      const cacheKey = cacheable
+        ? semanticCacheKey(effectiveWsId, resolvedModel, content)
+        : null;
+      if (cacheKey) {
+        const cached = getCachedReply(cacheKey);
+        if (cached) {
+          emit({ type: "cache_hit", model: resolvedModel });
+          onToken(cached);
+          onDone(cached);
+          return;
+        }
+      }
+      // Caller signal (cancel) + request timeout, whichever fires first.
+      // Created before RAG so the LLM rewrite call shares the deadline.
+      const timeoutSignal = AbortSignal.timeout(STELLA_REQUEST_TIMEOUT_MS);
+      const signal = opts?.signal
+        ? AbortSignal.any([opts.signal, timeoutSignal])
+        : timeoutSignal;
+      const ragStart = Date.now();
+      let ragHits = 0;
       let contextStr = "";
       try {
-        const effectiveWsId = workspaceId ?? SENTINEL_GUEST;
         const notebookId = context?.notebookId;
 
         let notebookContextStr = "";
@@ -170,6 +255,15 @@ export class BrainService {
           } catch {}
         }
 
+        // LLM rewrite terms (flagged, extra call) join the BM25 bag.
+        let extraTerms = "";
+        if (opts?.llmExpansion ?? QUERY_LLM_EXPANSION_ENABLED) {
+          try {
+            extraTerms = await this.rewriteTermsLLM(content, signal);
+          } catch {
+            /* rule-only expansion */
+          }
+        }
         const kResults = await knowledgeService.search(content, {
           workspaceId: effectiveWsId,
           notebookId,
@@ -180,7 +274,9 @@ export class BrainService {
           datasetIds: context?.datasetIds,
           limit: RETRIEVAL_LIMIT_DATA,
           includeSystemKnowledge: true,
+          extraTerms,
         });
+        ragHits = kResults.length;
 
         const parts: string[] = [];
         // Dataset expert header — always first, guarantees grounding
@@ -228,6 +324,7 @@ export class BrainService {
       } catch {
         // RAG retrieval optional — continue without context
       }
+      emit({ type: "rag_done", ms: Date.now() - ragStart, ragHits });
       const systemPrompt = context?.datasetExpert
         ? `${SYSTEM_PROMPT}\n\n${DATASET_EXPERT_PROMPT}`
         : SYSTEM_PROMPT;
@@ -243,112 +340,81 @@ export class BrainService {
         ...history.map((m) => ({ role: m.role, content: m.content })),
         { role: "user", content },
       ];
-      const requestBody = JSON.stringify({
-        messages: stellaMessages,
-        model,
+      const toolsOn = opts?.tools ?? STELLA_TOOLS_ENABLED;
+      const conversation: Array<Record<string, unknown>> = [
+        { role: "system", content: systemContent },
+        ...history.map((m) => ({ role: m.role, content: m.content })),
+        { role: "user", content },
+      ];
+      const baseBody = {
+        model: resolvedModel,
         stream: true,
         max_tokens: opts?.maxTokens ?? STELLA_MAX_TOKENS,
-      });
-
-      // Caller signal (cancel) + request timeout, whichever fires first.
-      const timeoutSignal = AbortSignal.timeout(STELLA_REQUEST_TIMEOUT_MS);
-      const signal = opts?.signal
-        ? AbortSignal.any([opts.signal, timeoutSignal])
-        : timeoutSignal;
-
-      const res = await this.postChatWithRetry(requestBody, signal);
-
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "Unknown error");
-        throw new Error(`Stella API error (${res.status}): ${errText}`);
-      }
-
-      // Handle both streaming (SSE data: ) and non-streaming JSON (fallback)
-      const contentType = res.headers.get("Content-Type") || "";
-      if (
-        contentType.includes("application/json") &&
-        !contentType.includes("text/event-stream")
-      ) {
-        // Non-stream fallback (e.g., Groq without stream:true or Vite HTML fallback)
-        try {
-          const json = (await res.json()) as {
-            choices?: Array<{
-              message?: { content?: string };
-              delta?: { content?: string };
-            }>;
-          };
-          const content =
-            json.choices?.[0]?.message?.content ??
-            json.choices?.[0]?.delta?.content ??
-            "";
-          const cleaned = content.replace(/<\/?think>/g, "").trim();
-          if (cleaned) {
-            onToken(cleaned);
-            onDone(cleaned);
-          } else {
-            throw new Error("Empty response from Stella");
-          }
-          return;
-        } catch (e) {
-          throw new Error(
-            e instanceof Error ? e.message : "Failed to parse Stella response",
-          );
-        }
-      }
-
-      const reader = res.body!.getReader();
-      const decoder = new TextDecoder();
+        ...(toolsOn ? { tools: getStellaTools(), tool_choice: "auto" } : {}),
+      };
+      const execCtx: ToolExecContext = {
+        workspaceId: effectiveWsId,
+        notebookId: context?.notebookId ?? undefined,
+        activeCellId: context?.activeCellId ?? undefined,
+        kinds: context?.kinds,
+        column: context?.column,
+        datasetIds: context?.datasetIds,
+        datasetExpert: context?.datasetExpert
+          ? {
+              fileName: context.datasetExpert.fileName,
+              uploadId: context.datasetExpert.uploadId,
+              rowCount: context.datasetExpert.rowCount,
+              colCount: context.datasetExpert.colCount,
+              columnTypes: context.datasetExpert.columnTypes,
+              cleaned: context.datasetExpert.cleaned,
+              cleaningSummary: context.datasetExpert.cleaningSummary,
+            }
+          : null,
+      };
+      const llmStart = Date.now();
+      let toolIters = 0;
       let full = "";
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith("data: ")) continue;
-          const jsonStr = trimmed.slice(6);
-          if (jsonStr === "[DONE]") continue;
-          try {
-            const parsed = JSON.parse(jsonStr);
-            let token = parsed.choices?.[0]?.delta?.content || "";
-            if (token) {
-              token = token.replace(/<\/?think>/g, "");
-              if (!token.trim()) continue;
-              full += token;
-              onToken(token);
-            }
-          } catch {
-            // skip malformed lines
-          }
+      for (;;) {
+        const turn = await this.streamTurn(
+          JSON.stringify({ ...baseBody, messages: conversation }),
+          signal,
+          onToken,
+        );
+        full += turn.text;
+        const calls = toolsOn ? turn.toolCalls : [];
+        if (calls.length === 0 || toolIters >= STELLA_MAX_TOOL_ITERS) break;
+        toolIters++;
+        conversation.push({
+          role: "assistant",
+          content: turn.text,
+          tool_calls: calls.map((c) => ({
+            id: c.id,
+            type: "function",
+            function: { name: c.name, arguments: JSON.stringify(c.args) },
+          })),
+        });
+        for (const call of calls) {
+          const result = await executeToolCall(execCtx, call);
+          conversation.push({
+            role: "tool",
+            tool_call_id: call.id,
+            content: result,
+          });
         }
-      }
-      // Flush leftover buffer (no trailing \n)
-      if (buffer.trim().startsWith("data: ")) {
-        try {
-          const jsonStr = buffer.trim().slice(6);
-          if (jsonStr !== "[DONE]") {
-            const parsed = JSON.parse(jsonStr);
-            let token = parsed.choices?.[0]?.delta?.content || "";
-            if (token) {
-              token = token.replace(/<\/?think>/g, "");
-              if (token.trim()) {
-                full += token;
-                onToken(token);
-              }
-            }
-          }
-        } catch {}
       }
 
       if (!full.trim()) {
         throw new Error("Empty response from Stella");
       }
+      if (cacheKey) setCachedReply(cacheKey, full);
+      emit({
+        type: "llm_done",
+        ms: Date.now() - llmStart,
+        model: resolvedModel,
+        toolIters,
+        estInputTokens: Math.round(JSON.stringify(conversation).length / 4),
+      });
+      if (toolsOn) emit({ type: "tools_done", toolIters });
       onDone(full);
     } catch (err) {
       if (isAbortError(err)) {
@@ -357,6 +423,121 @@ export class BrainService {
       }
       onError(err instanceof Error ? err : new Error(String(err)));
     }
+  }
+
+  /**
+   * One streamed chat turn: SSE `delta.content` via onToken plus assembled
+   * `delta.tool_calls`. Non-streaming JSON bodies take the legacy path
+   * (content only — tools need streaming).
+   */
+  private async streamTurn(
+    body: string,
+    signal: AbortSignal,
+    onToken: (token: string) => void,
+  ): Promise<{ text: string; toolCalls: AssembledToolCall[] }> {
+    const res = await this.postChatWithRetry(body, signal);
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "Unknown error");
+      throw new Error(`Stella API error (${res.status}): ${errText}`);
+    }
+    const contentType = res.headers.get("Content-Type") || "";
+    if (
+      contentType.includes("application/json") &&
+      !contentType.includes("text/event-stream")
+    ) {
+      // Non-stream fallback (e.g., Groq without stream:true or Vite HTML fallback)
+      try {
+        const json = (await res.json()) as {
+          choices?: Array<{
+            message?: { content?: string };
+            delta?: { content?: string };
+          }>;
+        };
+        const content =
+          json.choices?.[0]?.message?.content ??
+          json.choices?.[0]?.delta?.content ??
+          "";
+        const cleaned = content.replace(/<\/?think>/g, "").trim();
+        if (cleaned) {
+          onToken(cleaned);
+          return { text: cleaned, toolCalls: [] };
+        }
+        throw new Error("Empty response from Stella");
+      } catch (e) {
+        throw new Error(
+          e instanceof Error ? e.message : "Failed to parse Stella response",
+        );
+      }
+    }
+
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    const callChunks: ToolCallChunk[] = [];
+    const feed = (jsonStr: string) => {
+      if (jsonStr === "[DONE]") return;
+      try {
+        const parsed = JSON.parse(jsonStr);
+        const delta = (parsed.choices?.[0]?.delta ?? {}) as {
+          content?: string;
+          tool_calls?: ToolCallChunk[];
+        };
+        let token = delta.content || "";
+        if (token) {
+          token = token.replace(/<\/?think>/g, "");
+          if (token.trim()) {
+            text += token;
+            onToken(token);
+          }
+        }
+        if (Array.isArray(delta.tool_calls))
+          callChunks.push(...delta.tool_calls);
+      } catch {
+        // skip malformed lines
+      }
+    };
+    let buffer = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data: ")) continue;
+        feed(trimmed.slice(6));
+      }
+    }
+    // Flush leftover buffer (no trailing \n)
+    if (buffer.trim().startsWith("data: ")) feed(buffer.trim().slice(6));
+    return { text, toolCalls: assembleToolCalls(callChunks) };
+  }
+
+  /** Single non-streamed rewrite call → raw terms string (may throw). */
+  private async rewriteTermsLLM(
+    query: string,
+    signal: AbortSignal,
+  ): Promise<string> {
+    const body = JSON.stringify({
+      model: DEFAULT_GROQ_MODEL,
+      stream: false,
+      max_tokens: QUERY_LLM_EXPANSION_MAX_TOKENS,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Rewrite the user question as comma-separated search terms (synonyms, full forms of abbreviations, related statistics vocabulary). Reply with terms only, no prose.",
+        },
+        { role: "user", content: query },
+      ],
+    });
+    const res = await this.postChatWithRetry(body, signal);
+    if (!res.ok) throw new Error(`Stella API error (${res.status})`);
+    const json = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    return json.choices?.[0]?.message?.content ?? "";
   }
 }
 

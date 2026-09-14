@@ -13,6 +13,7 @@ import {
   embeddingCache,
   buildEmbeddingKey,
 } from "../embeddings/EmbeddingCache";
+import { bm25Scores, rankIndices, rrfFuse, tokenizeText } from "./hybridSearch";
 import type { EmbeddingEntry } from "../embeddings/types";
 import { EMBED_MODEL } from "../config";
 import { EMBED_CACHE_VERSION } from "../config/retrieval";
@@ -25,11 +26,17 @@ import { DICTIONARY_TERMS } from "@polymorpha/business-logic";
 import {
   DICTIONARY_QUERY_TOP,
   DICTIONARY_TERMS_LIMIT,
+  HYBRID_ENABLED,
+  QUERY_EXPANSION_ENABLED,
+  RERANK_CANDIDATES,
+  RERANK_ENABLED,
   RETRIEVAL_LIMIT_DATA,
   RETRIEVAL_LIMIT_DEFAULT,
   SCORE_BOOSTS,
   SCORE_FALLBACK,
 } from "../config/retrieval";
+import { mmrSelect, rerankCandidates } from "./reranker";
+import { expandQueryTerms, mergeTermBags } from "./queryExpansion";
 
 export interface KnowledgeProvider {
   provide(
@@ -48,10 +55,7 @@ function rankDictionaryTerms(
   query: string,
   terms: typeof DICTIONARY_TERMS,
 ): typeof DICTIONARY_TERMS {
-  const tokens = query
-    .toLowerCase()
-    .split(/[^a-z0-9+#-]+/)
-    .filter((t) => t.length > 1);
+  const tokens = tokenizeText(query);
   if (tokens.length === 0) return [...terms];
   const scored = terms.map((t) => {
     const hay =
@@ -101,6 +105,7 @@ function normalizeSearchOpts(
   includeSuperseded: boolean;
   limit: number;
   query: string;
+  extraTerms: string;
 } {
   const anyOpts = opts as unknown as Record<string, unknown>;
   const workspaceId = (anyOpts.workspaceId as string) ?? "";
@@ -129,6 +134,7 @@ function normalizeSearchOpts(
     (kinds?.includes("data_representative")
       ? RETRIEVAL_LIMIT_DATA
       : RETRIEVAL_LIMIT_DEFAULT);
+  const extraTerms = (anyOpts.extraTerms as string | undefined) ?? "";
   return {
     workspaceId,
     notebookId,
@@ -141,6 +147,7 @@ function normalizeSearchOpts(
     includeSuperseded,
     limit,
     query,
+    extraTerms,
   };
 }
 
@@ -321,9 +328,28 @@ export class KnowledgeService {
         .map((r) => ({ record: r, score: SCORE_FALLBACK }));
     }
 
+    const denseScores = vectors.map((v) =>
+      v ? cosineSimilarity(queryVec!, v) : 0,
+    );
+    // Hybrid fusion: dense rank + BM25 rank via RRF (scale-free — the two
+    // live on incomparable scales). Hard-requirement boosts apply below.
+    let fusedScores = denseScores;
+    if (HYBRID_ENABLED) {
+      // Expansion feeds the lexical path only (dense keeps raw intent).
+      const ruleBag = QUERY_EXPANSION_ENABLED ? expandQueryTerms(query) : query;
+      const lexicalQuery = n.extraTerms
+        ? mergeTermBags(ruleBag, n.extraTerms)
+        : ruleBag;
+      const lexical = bm25Scores(lexicalQuery, texts);
+      fusedScores = rrfFuse(
+        [rankIndices(denseScores), rankIndices(lexical)],
+        candidates.length,
+      );
+    }
+
     const scored: KnowledgeResult[] = candidates.map((rec, i) => {
       const v = vectors[i];
-      let score = v ? cosineSimilarity(queryVec!, v) : 0;
+      let score = fusedScores[i];
       const status = (rec.metadata as { status?: string }).status;
       if (status === "active") score += SCORE_BOOSTS.statusActive;
       else if (status === "stale") score += SCORE_BOOSTS.statusStale;
@@ -363,7 +389,14 @@ export class KnowledgeService {
     });
 
     scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, n.limit);
+    if (!RERANK_ENABLED) return scored.slice(0, n.limit);
+    // Second stage: rerank the head for precision, MMR for diversity.
+    const pool = scored.slice(
+      0,
+      Math.max(n.limit, Math.min(scored.length, RERANK_CANDIDATES)),
+    );
+    const reranked = await rerankCandidates(query, pool);
+    return mmrSelect(reranked, n.limit).slice(0, n.limit);
   }
 
   /**

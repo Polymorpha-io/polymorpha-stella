@@ -6,6 +6,17 @@ export {
   KnowledgeService,
   knowledgeService,
 } from "./knowledge/KnowledgeService";
+export * from "./knowledge/hybridSearch";
+export * from "./knowledge/queryExpansion";
+export {
+  FeatureReranker,
+  getReranker,
+  mmrSelect,
+  rerankCandidates,
+  setReranker,
+  featureScore,
+} from "./knowledge/reranker";
+export type { Reranker } from "./knowledge/reranker";
 export * from "./knowledge/providers/DatasetKnowledgeProvider";
 export * from "./knowledge/providers/RelationshipKnowledgeProvider";
 
@@ -73,7 +84,12 @@ export { BrainService } from "./stella/brain/BrainService";
 export type {
   StellaContext as BrainStellaContext,
   AnswerStreamingOptions,
+  StellaEvent,
+  StellaEventType,
 } from "./stella/brain/BrainService";
+export * from "./stella/brain/tools";
+export * from "./stella/routing";
+export * from "./stella/semanticCache";
 export * from "./stella/brain/Embedder";
 export * from "./stella/models/embeddingModel";
 

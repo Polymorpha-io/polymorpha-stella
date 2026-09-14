@@ -16,12 +16,81 @@ let tokenizer: unknown | null = null;
 
 let loadingPromise: Promise<void> | null = null;
 
+// ---------------------------------------------------------------------------
+// Runtime model config (Phase 4) — StellaConfig injection made live.
+// Defaults preserve current behavior (MiniLM 384d/512). Switching models
+// resets the loaded pipe (one-time reload cost) and re-namespaces cache
+// keys via getEmbeddingModelId(), so swaps invalidate naturally (S14).
+// Drop-in upgrade path: { model: "Xenova/bge-small-en-v1.5" } — same 384d,
+// ~33MB, no migration. Session-scoped use only (last-write-wins).
+// ---------------------------------------------------------------------------
+
+export interface EmbeddingModelConfig {
+  model?: string;
+  dim?: number;
+  chunkTokens?: number;
+}
+
+/** Validated context window for the 512-family (MiniLM, BGE-small, MPNet). */
+export const MODEL_CONTEXT_TOKENS = 512;
+
+const FAMILY_512 = [/minilm/i, /bge-small/i, /mpnet/i];
+
+let activeModel = EMBED_MODEL;
+let activeDim = EMBED_DIM;
+let activeChunkTokens = EMBED_CHUNK_TOKENS;
+
+function resetPipe(): void {
+  pipe = null;
+  tokenizer = null;
+  loadingPromise = null;
+}
+
+export interface ConfiguredEmbeddings {
+  model: string;
+  dim: number;
+  chunkTokens: number;
+}
+
+export function configureEmbeddings(
+  cfg: EmbeddingModelConfig,
+): ConfiguredEmbeddings {
+  if (cfg.model) activeModel = cfg.model;
+  if (cfg.dim) activeDim = cfg.dim;
+  if (cfg.chunkTokens) {
+    const knownFamily = FAMILY_512.some((re) => re.test(activeModel));
+    if (knownFamily && cfg.chunkTokens > MODEL_CONTEXT_TOKENS) {
+      console.warn(
+        `[embeddingModel] chunkTokens ${cfg.chunkTokens} exceeds ${activeModel} context ${MODEL_CONTEXT_TOKENS} — clamped`,
+      );
+      activeChunkTokens = MODEL_CONTEXT_TOKENS;
+    } else {
+      activeChunkTokens = cfg.chunkTokens;
+    }
+  }
+  resetPipe();
+  return {
+    model: activeModel,
+    dim: activeDim,
+    chunkTokens: activeChunkTokens,
+  };
+}
+
+/** Restore build-time defaults (tests + session teardown). */
+export function resetEmbeddingsToDefault(): void {
+  activeModel = EMBED_MODEL;
+  activeDim = EMBED_DIM;
+  activeChunkTokens = EMBED_CHUNK_TOKENS;
+  resetPipe();
+}
+
 export async function loadEmbeddingModel(): Promise<void> {
   if (pipe) return;
   if (loadingPromise) return loadingPromise;
+  const modelId = activeModel;
   loadingPromise = (async () => {
-    pipe = await pipeline(EMBED_PIPELINE_TASK, EMBED_MODEL as never);
-    // G24 §8: tokenizer from same library when available — validates EMBED_CHUNK_TOKENS per model
+    pipe = await pipeline(EMBED_PIPELINE_TASK, modelId as never);
+    // G24 §8: tokenizer from same library when available — validates chunkTokens per model
     try {
       const mod = await import("@xenova/transformers");
       const AutoTokenizer = (
@@ -30,7 +99,7 @@ export async function loadEmbeddingModel(): Promise<void> {
         }
       ).AutoTokenizer;
       if (AutoTokenizer?.from_pretrained) {
-        tokenizer = await AutoTokenizer.from_pretrained(EMBED_MODEL).catch(
+        tokenizer = await AutoTokenizer.from_pretrained(modelId).catch(
           () => null,
         );
       }
@@ -43,12 +112,12 @@ export async function loadEmbeddingModel(): Promise<void> {
 
 /**
  * G24 §8 chunking — use tokenizer from embedding library when available,
- * fallback to character-window approximation validated per EMBED_DIM 384 model.
- * EMBED_CHUNK_TOKENS is configurable but must be validated against model context (512 for MiniLM).
+ * fallback to character-window approximation validated per 384d model.
+ * Chunk budget follows the ACTIVE model config (512 for MiniLM/BGE-small).
  */
 export function chunkText(
   text: string,
-  maxTokens: number = EMBED_CHUNK_TOKENS,
+  maxTokens: number = activeChunkTokens,
 ): string[] {
   if (!text) return [];
   const approxCharsPerToken = CHARS_PER_TOKEN;
@@ -97,11 +166,11 @@ export function chunkText(
 }
 
 export function getEmbeddingDims(): number {
-  return EMBED_DIM;
+  return activeDim;
 }
 
 export function getEmbeddingModelId(): string {
-  return EMBED_MODEL;
+  return activeModel;
 }
 
 export async function embed(text: string): Promise<Float32Array> {
@@ -124,7 +193,7 @@ export async function embedMany(texts: string[]): Promise<Float32Array[]> {
     } else {
       // average chunk embeddings for long texts G21 512 window
       const embs = await Promise.all(chunks.map((c) => embed(c)));
-      const dim = embs[0]?.length ?? EMBED_DIM;
+      const dim = embs[0]?.length ?? activeDim;
       const avg = new Float32Array(dim);
       for (const e of embs)
         for (let i = 0; i < dim; i++) avg[i] += e[i] / embs.length;

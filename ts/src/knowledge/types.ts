@@ -92,6 +92,8 @@ export interface KnowledgeSearchRequest {
   includeSuperseded?: boolean;
   includeSystemKnowledge?: boolean;
   limit?: number;
+  /** Extra rewrite terms merged into the BM25 bag (LLM expansion). */
+  extraTerms?: string;
 }
 
 /** Back-compat: singular datasetId/cellId aliases datasetIds/activeCellId */

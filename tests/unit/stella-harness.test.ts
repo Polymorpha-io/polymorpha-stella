@@ -230,7 +230,7 @@ describe("BrainService harness budgets", () => {
     });
     const svc = new BrainService();
     await svc.init("ws-harness");
-    const full = await runBrain(svc, [], "hello");
+    const full = await runBrain(svc, [], "hello retry");
     expect(full).toContain("recovered");
     expect(calls).toBe(2);
   });
@@ -248,7 +248,7 @@ describe("BrainService harness budgets", () => {
     const svc = new BrainService();
     await svc.init("ws-harness");
     await expect(
-      runBrain(svc, [], "hello", { signal: ac.signal }),
+      runBrain(svc, [], "hello abort", { signal: ac.signal }),
     ).rejects.toThrow("Stella request cancelled");
     expect(calls).toBe(1);
   });

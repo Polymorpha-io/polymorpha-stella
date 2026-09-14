@@ -6,7 +6,7 @@ import { EMBED_CACHE_OVERHEAD, IDB_EMBEDDINGS } from "../config/knowledge";
 import { CACHE_HIGH_WATERMARK } from "@polymorpha/business-logic";
 import { hashString, HASH_PREFIX_LEN } from "@polymorpha/business-logic";
 import { EMBED_VECTOR_MAX_BYTES, EMBED_VECTOR_MAX_ENTRIES } from "../config";
-import { EMBED_MODEL } from "../config";
+import { getEmbeddingModelId } from "../stella/models/embeddingModel";
 import { EMBED_CACHE_VERSION } from "../config/retrieval";
 
 const DB_NAME = IDB_EMBEDDINGS.db;
@@ -225,13 +225,14 @@ export const embeddingCache = new EmbeddingCache();
  * is unavailable (never throws — cache is best-effort).
  */
 export async function buildEmbeddingKey(text: string): Promise<string> {
+  const model = getEmbeddingModelId();
   try {
     const hex = await hashString(text);
-    return `${EMBED_MODEL}:${EMBED_CACHE_VERSION}:${hex.slice(0, HASH_PREFIX_LEN)}`;
+    return `${model}:${EMBED_CACHE_VERSION}:${hex.slice(0, HASH_PREFIX_LEN)}`;
   } catch {
     let h = 5381;
     for (let i = 0; i < text.length; i++)
       h = (Math.imul(33, h) ^ text.charCodeAt(i)) >>> 0;
-    return `${EMBED_MODEL}:${EMBED_CACHE_VERSION}:djb2-${h.toString(36)}-${text.length}`;
+    return `${model}:${EMBED_CACHE_VERSION}:djb2-${h.toString(36)}-${text.length}`;
   }
 }
