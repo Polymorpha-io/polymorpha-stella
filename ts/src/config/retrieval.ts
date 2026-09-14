@@ -46,6 +46,8 @@ export const RELATIONSHIP_LIST_TOP = 5;
 /** Stella chat-harness budgets (Phase 1 hardening — bounds per-turn tokens). */
 /** Max history messages forwarded to the LLM (most recent first). */
 export const STELLA_HISTORY_LIMIT = 20;
+/** Anchor messages kept from session start when the window compacts. */
+export const STELLA_HISTORY_HEAD_KEEP = 1;
 /** Completion cap sent as `max_tokens` (worker passthrough honors it). */
 export const STELLA_MAX_TOKENS = 800;
 /** Chat fetch timeout applied when the caller supplies no signal. */
@@ -73,8 +75,8 @@ export const RERANK_CANDIDATES = 24;
 export const RERANK_MMR_LAMBDA = 0.7;
 /** Query expansion (Phase 2C): false searches the raw query only. */
 export const QUERY_EXPANSION_ENABLED = true;
-/** Max query variants per search (original + expansions). */
-export const QUERY_MAX_VARIANTS = 3;
+/** Builder evidence records merged into context (deduped vs search hits). */
+export const NOTEBOOK_EVIDENCE_TOP = 4;
 
 /** Phase 3 harness: agentic tool loop (default OFF until live-measured). */
 export const STELLA_TOOLS_ENABLED = false;
@@ -88,6 +90,9 @@ export const STELLA_ROUTE_STRONG_MIN_HISTORY = 12;
 export const STELLA_SEMANTIC_CACHE_ENABLED = true;
 export const STELLA_SEMANTIC_CACHE_TTL_MS = 5 * 60_000;
 export const STELLA_SEMANTIC_CACHE_MAX = 100;
+/** Paraphrase-level cache hits via query-vector cosine (default ON). */
+export const STELLA_SEMANTIC_SIM_ENABLED = true;
+export const STELLA_SEMANTIC_SIM_THRESHOLD = 0.95;
 /** LLM expansion terms (Phase 3F): extra rewrite call, default OFF. */
 export const QUERY_LLM_EXPANSION_ENABLED = false;
 export const QUERY_LLM_EXPANSION_MAX_TOKENS = 120;

@@ -18,6 +18,7 @@ import { knowledgeService } from "@/knowledge/KnowledgeService";
 import { knowledgeStore } from "@/knowledge/KnowledgeStore";
 import { notebookRepository } from "@/notebook/NotebookRepository";
 import { BrainService } from "@/stella/brain/BrainService";
+import { selectHistoryWindow } from "@/stella/brain/BrainService";
 import { StellaService } from "@/stella/StellaService";
 import type { IStellaMessage } from "@/stella/types";
 
@@ -199,10 +200,11 @@ describe("BrainService harness budgets", () => {
     const full = await runBrain(svc, makeHistory(30), "summarize please");
     expect(full).toContain("ok");
     const { body } = captureBody();
-    // 1 system + tail(20) + 1 current user
+    // 1 system + anchor(first) + tail(19) + 1 current user
     expect(body.messages).toHaveLength(1 + STELLA_HISTORY_LIMIT + 1);
     expect(body.messages[0].role).toBe("system");
-    expect(body.messages[1].content).toBe("history message 10");
+    expect(body.messages[1].content).toBe("history message 0");
+    expect(body.messages[2].content).toBe("history message 11");
     expect(body.messages[body.messages.length - 1].content).toBe(
       "summarize please",
     );
@@ -334,5 +336,37 @@ describe("KnowledgeService dict prefilter + cache", () => {
     expect(a1).toBe(a2);
     expect(a1).not.toBe(b);
     expect(a1.length).toBeGreaterThan(0);
+  });
+});
+
+describe("selectHistoryWindow", () => {
+  const msgs = (n: number) => Array.from({ length: n }, (_, i) => `m${i}`);
+
+  it("passes short histories through untouched", () => {
+    expect(selectHistoryWindow(msgs(5), 20)).toEqual(msgs(5));
+    expect(selectHistoryWindow(msgs(20), 20)).toEqual(msgs(20));
+  });
+
+  it("keeps the anchor plus the tail over budget", () => {
+    expect(selectHistoryWindow(msgs(30), 20)).toEqual([
+      "m0",
+      ...msgs(30).slice(-19),
+    ]);
+  });
+
+  it("honors headKeep and treats limit 0 as none", () => {
+    expect(selectHistoryWindow(msgs(10), 4, 2)).toEqual([
+      "m0",
+      "m1",
+      "m8",
+      "m9",
+    ]);
+    expect(selectHistoryWindow(msgs(10), 0)).toEqual([]);
+    expect(selectHistoryWindow(msgs(10), -1)).toEqual(msgs(10));
+  });
+
+  it("never duplicates when the head fills the window", () => {
+    expect(selectHistoryWindow(msgs(10), 1)).toEqual(["m0"]);
+    expect(selectHistoryWindow(msgs(10), 2, 5)).toEqual(["m0", "m1"]);
   });
 });

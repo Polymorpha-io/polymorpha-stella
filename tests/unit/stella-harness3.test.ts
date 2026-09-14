@@ -17,6 +17,8 @@ import {
 import { assembleToolCalls } from "@/stella/brain/tools";
 import { BrainService } from "@/stella/brain/BrainService";
 import type { StellaEvent } from "@/stella/brain/BrainService";
+import { notebookContextBuilder } from "@/notebook/NotebookContextBuilder";
+import type { KnowledgeRecord } from "@/knowledge/types";
 import { knowledgeStore } from "@/knowledge/KnowledgeStore";
 import { notebookRepository } from "@/notebook/NotebookRepository";
 
@@ -338,5 +340,86 @@ describe("brain phase-3 wiring", () => {
     expect(bodies).toHaveLength(2);
     expect(bodies[0]).not.toHaveProperty("tools");
     expect((bodies[0] as { stream: boolean }).stream).toBe(false);
+  });
+});
+
+describe("notebook evidence reuse", () => {
+  function makeRec(id: string, text: string): KnowledgeRecord {
+    const now = Date.now();
+    return {
+      id,
+      workspaceId: "ws-ev",
+      notebookId: "nb-ev",
+      kind: "notebook_cell",
+      text,
+      metadata: { source: "test" },
+      provenance: { workspaceId: "ws-ev", notebookId: "nb-ev" },
+      sourceHash: `ev:${id}`,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  function systemPromptOf(body: Record<string, unknown>): string {
+    const messages = (body as { messages: Array<{ role: string }> })
+      .messages as Array<{ role: string; content: string }>;
+    return messages.find((m) => m.role === "system")?.content ?? "";
+  }
+
+  it("merges builder-only records, dedupes search hits", async () => {
+    const shared = makeRec("shared-1", "SHAREDMARKER alpha cell narrative");
+    const only = makeRec("nb-only-2", "ONLYMARKER beta cell narrative");
+    const buildSpy = vi
+      .spyOn(notebookContextBuilder, "build")
+      .mockResolvedValue({
+        activeCell: undefined,
+        precedingCells: [],
+        relevantCells: [],
+        relevantKnowledge: [shared, only],
+        datasets: [],
+      });
+    vi.mocked(knowledgeStore.getByWorkspace).mockImplementationOnce(
+      async () => [shared] as never,
+    );
+    try {
+      const events: StellaEvent[] = [];
+      const svc = new BrainService();
+      await svc.init("ws-ev");
+      global.fetch = vi.fn(async (_url: unknown, init: unknown) => {
+        const body = JSON.parse((init as { body: string }).body) as Record<
+          string,
+          unknown
+        >;
+        fetchCalls.push(body);
+        return sseBody(["ok"]);
+      }) as unknown as typeof fetch;
+      const full = await new Promise<string>((resolve, reject) => {
+        void svc.answerStreaming(
+          [],
+          "marker probe evidence",
+          "ws-ev",
+          undefined,
+          () => {},
+          (f) => resolve(f),
+          (e) => reject(e),
+          { activeCellId: "cell_9" },
+          { onEvent: (e) => events.push(e) },
+        );
+      });
+      expect(full).toContain("ok");
+      // Builder received the request context (incl. dataset filter slot).
+      expect(buildSpy).toHaveBeenCalledOnce();
+      expect(buildSpy.mock.calls[0][0]).toMatchObject({
+        workspaceId: "ws-ev",
+        activeCellId: "cell_9",
+      });
+      const sys = systemPromptOf(fetchCalls[fetchCalls.length - 1]);
+      expect(sys).toContain("[notebook_evidence]");
+      expect(sys).toContain("ONLYMARKER");
+      // Shared record appears once (search block), not twice.
+      expect(sys.split("SHAREDMARKER").length - 1).toBe(1);
+    } finally {
+      buildSpy.mockRestore();
+    }
   });
 });

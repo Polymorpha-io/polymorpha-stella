@@ -8,9 +8,11 @@ import { DEFAULT_GROQ_MODEL } from "../../stella/types";
 import { routeChatModel } from "../../stella/routing";
 import {
   getCachedReply,
+  findSimilarReply,
   semanticCacheKey,
   setCachedReply,
 } from "../../stella/semanticCache";
+import { embeddingService } from "../../embeddings/EmbeddingService";
 import { knowledgeService } from "../../knowledge/KnowledgeService";
 import { notebookContextBuilder } from "../../notebook/NotebookContextBuilder";
 import {
@@ -26,6 +28,7 @@ import {
   type ToolExecContext,
 } from "./tools";
 import type { KnowledgeKind } from "../../knowledge/types";
+import type { KnowledgeRecord } from "../../knowledge/types";
 import {
   SENTINEL_GUEST,
   SNIPPET_BRAIN_OUTPUT,
@@ -34,6 +37,8 @@ import {
 import {
   QUERY_LLM_EXPANSION_ENABLED,
   QUERY_LLM_EXPANSION_MAX_TOKENS,
+  NOTEBOOK_EVIDENCE_TOP,
+  STELLA_HISTORY_HEAD_KEEP,
   RETRIEVAL_LIMIT_DATA,
   RETRIEVAL_LIMIT_DEFAULT,
   STELLA_HISTORY_LIMIT,
@@ -43,6 +48,8 @@ import {
   STELLA_REQUEST_TIMEOUT_MS,
   STELLA_RETRY_BASE_MS,
   STELLA_SEMANTIC_CACHE_ENABLED,
+  STELLA_SEMANTIC_SIM_ENABLED,
+  STELLA_SEMANTIC_SIM_THRESHOLD,
   STELLA_TOOLS_ENABLED,
 } from "../../config/retrieval";
 import { HASH_TINY_LEN } from "@polymorpha/business-logic";
@@ -117,6 +124,28 @@ export interface StellaEvent {
   estInputTokens?: number;
   /** RAG records stuffed into context (rag_done). */
   ragHits?: number;
+}
+
+/**
+ * Compact history to a first+tail window: keeps the opening message(s) as
+ * the session anchor plus the most recent tail. Short histories pass
+ * through untouched. Pure — unit-tested.
+ */
+export function selectHistoryWindow<T>(
+  messages: T[],
+  limit: number,
+  headKeep: number = STELLA_HISTORY_HEAD_KEEP,
+): T[] {
+  if (limit < 0) return messages;
+  // Note: legacy slice(-limit) sent EVERYTHING at limit 0 (slice(-0) is
+  // slice(0)) — 0 now honestly means none.
+  if (limit === 0) return [];
+  if (messages.length <= limit) return messages;
+  const head = messages.slice(0, Math.max(0, Math.min(headKeep, limit)));
+  // slice(-0) is slice(0) — guard the degenerate head-fills-window case.
+  const tailCount = Math.max(0, limit - head.length);
+  const tail = tailCount === 0 ? [] : messages.slice(-tailCount);
+  return [...head, ...tail];
 }
 
 export class BrainService {
@@ -202,6 +231,7 @@ export class BrainService {
       const cacheKey = cacheable
         ? semanticCacheKey(effectiveWsId, resolvedModel, content)
         : null;
+      let queryVector: number[] | null = null;
       if (cacheKey) {
         const cached = getCachedReply(cacheKey);
         if (cached) {
@@ -209,6 +239,25 @@ export class BrainService {
           onToken(cached);
           onDone(cached);
           return;
+        }
+        // Paraphrase path: one query embed (the RAG pass reuses it via
+        // the embedding cache — net zero extra model calls once warm).
+        if (STELLA_SEMANTIC_SIM_ENABLED) {
+          try {
+            queryVector = Array.from(await embeddingService.embed(content));
+            const similar = findSimilarReply(
+              queryVector,
+              STELLA_SEMANTIC_SIM_THRESHOLD,
+            );
+            if (similar) {
+              emit({ type: "cache_hit", model: resolvedModel });
+              onToken(similar);
+              onDone(similar);
+              return;
+            }
+          } catch {
+            queryVector = null;
+          }
         }
       }
       // Caller signal (cancel) + request timeout, whichever fires first.
@@ -224,6 +273,7 @@ export class BrainService {
         const notebookId = context?.notebookId;
 
         let notebookContextStr = "";
+        let notebookEvidence: KnowledgeRecord[] = [];
         if (context?.activeCellId) {
           try {
             const nbCtx = await notebookContextBuilder.build({
@@ -234,7 +284,10 @@ export class BrainService {
               scope: context.searchScope,
               kinds: context.kinds,
               column: context.column,
+              datasetIds: context.datasetIds,
             });
+            // Builder's own search is evidence, not waste — merged below.
+            notebookEvidence = nbCtx.relevantKnowledge ?? [];
             if (nbCtx.activeCell) {
               notebookContextStr = [
                 `Active Cell ${nbCtx.activeCell.index} [${nbCtx.activeCell.type}] status=${nbCtx.activeCell.status} title="${nbCtx.activeCell.metadata.title || ""}"`,
@@ -320,6 +373,19 @@ export class BrainService {
               .join("\n\n"),
           );
         }
+        if (notebookEvidence.length > 0) {
+          const seen = new Set(kResults.map((r) => r.record.id));
+          const fresh = notebookEvidence
+            .filter((rec) => !seen.has(rec.id))
+            .slice(0, NOTEBOOK_EVIDENCE_TOP);
+          if (fresh.length > 0) {
+            parts.push(
+              `[notebook_evidence]\n${fresh
+                .map((rec) => `[${rec.kind}] ${rec.text.slice(0, 400)}`)
+                .join("\n\n")}`,
+            );
+          }
+        }
         if (parts.length > 0) contextStr = parts.join("\n\n");
       } catch {
         // RAG retrieval optional — continue without context
@@ -333,8 +399,7 @@ export class BrainService {
         : systemPrompt;
       // History window: full sessions grow linearly — forward the tail only.
       const historyLimit = opts?.historyLimit ?? STELLA_HISTORY_LIMIT;
-      const history =
-        historyLimit >= 0 ? messages.slice(-historyLimit) : messages;
+      const history = selectHistoryWindow(messages, historyLimit);
       const stellaMessages: Array<{ role: string; content: string }> = [
         { role: "system", content: systemContent },
         ...history.map((m) => ({ role: m.role, content: m.content })),
@@ -406,7 +471,8 @@ export class BrainService {
       if (!full.trim()) {
         throw new Error("Empty response from Stella");
       }
-      if (cacheKey) setCachedReply(cacheKey, full);
+      if (cacheKey)
+        setCachedReply(cacheKey, full, Date.now(), queryVector ?? undefined);
       emit({
         type: "llm_done",
         ms: Date.now() - llmStart,

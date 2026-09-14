@@ -80,7 +80,7 @@ export {
   type StellaContext as ServiceStellaContext,
   type StellaRequestOptions,
 } from "./stella/StellaService";
-export { BrainService } from "./stella/brain/BrainService";
+export { BrainService, selectHistoryWindow } from "./stella/brain/BrainService";
 export type {
   StellaContext as BrainStellaContext,
   AnswerStreamingOptions,
