@@ -22,6 +22,7 @@ import type { Notebook } from "../notebook/types";
 import { notebookRepository } from "../notebook/NotebookRepository";
 import { DatasetKnowledgeProvider } from "./providers/DatasetKnowledgeProvider";
 import { RelationshipKnowledgeProvider } from "./providers/RelationshipKnowledgeProvider";
+import { FunctionalityKnowledgeProvider } from "./providers/FunctionalityKnowledgeProvider";
 import { DICTIONARY_TERMS } from "@polymorpha/business-logic";
 import {
   DICTIONARY_QUERY_TOP,
@@ -155,6 +156,7 @@ export class KnowledgeService {
   private dictProvider = new DictionaryKnowledgeProvider();
   private datasetProvider = new DatasetKnowledgeProvider();
   private relationshipProvider = new RelationshipKnowledgeProvider();
+  private functionalityProvider = new FunctionalityKnowledgeProvider();
 
   async index(record: KnowledgeRecord): Promise<void> {
     await knowledgeStore.put(record);
@@ -247,8 +249,13 @@ export class KnowledgeService {
     }
 
     if (n.includeSystemKnowledge) {
-      const dict = await this.dictProvider.provide(query).catch(() => []);
-      candidates.push(...dict);
+      const [dict, funcs] = await Promise.all([
+        this.dictProvider.provide(query).catch(() => [] as KnowledgeRecord[]),
+        this.functionalityProvider
+          .provide(workspaceId, undefined, query)
+          .catch(() => [] as KnowledgeRecord[]),
+      ]);
+      candidates.push(...dict, ...funcs);
     }
 
     if (n.kinds && n.kinds.length) {

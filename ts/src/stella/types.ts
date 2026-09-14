@@ -58,6 +58,8 @@ export interface DatasetExpertContext {
 }
 
 export const EXAMPLE_PROMPTS = [
+  "What can Polymorpha do?",
+  "Which test compares two groups?",
   "What does a p-value mean?",
   "How do I clean missing data?",
   "Explain a t-test",

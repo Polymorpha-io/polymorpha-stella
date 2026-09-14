@@ -62,6 +62,7 @@ const SYSTEM_PROMPT = [
   "Keep answers concise and informative. Use plain language.",
   "When referring to statistical concepts, explain them simply.",
   "When citing notebook evidence, reference Cell ID and dataset provenance.",
+  "When you recommend a Polymorpha capability, ground it ONLY in [functionality] or [guide] context records and cite each one as [functionality:<id>] using the ref shown — never invent method names, thresholds, or UI locations; if no record supports it, say so.",
 ].join("\n");
 
 const DATASET_EXPERT_PROMPT = [
@@ -368,6 +369,22 @@ export class BrainService {
                 const col = prov.columns?.join(",")
                   ? ` columns=${prov.columns?.join(",")}`
                   : "";
+                if (
+                  r.record.kind === "functionality" ||
+                  r.record.kind === "guide"
+                ) {
+                  const meta = r.record.metadata as {
+                    functionalityId?: string;
+                    uiPath?: string;
+                    verified?: boolean;
+                  };
+                  const ref = meta.functionalityId ?? r.record.id;
+                  const unverified =
+                    meta.verified === false
+                      ? " experimental-verification-pending"
+                      : "";
+                  return `[${r.record.kind}] ${r.record.text} (ref: functionality:${ref} ui:${meta.uiPath ?? "—"}${unverified})`;
+                }
                 return `[${r.record.kind}] ${r.record.text} (cell:${cell} ws:${prov.workspaceId} dataset:${datasets}${sample}${chunk}${col})`;
               })
               .join("\n\n"),
@@ -395,7 +412,7 @@ export class BrainService {
         ? `${SYSTEM_PROMPT}\n\n${DATASET_EXPERT_PROMPT}`
         : SYSTEM_PROMPT;
       const systemContent = contextStr
-        ? `${systemPrompt}\n\nContext (Knowledge plane — notebook + dataset + relationship, use when relevant):\n${contextStr}`
+        ? `${systemPrompt}\n\nContext (Knowledge plane — notebook + dataset + relationship + functionality, use when relevant):\n${contextStr}`
         : systemPrompt;
       // History window: full sessions grow linearly — forward the tail only.
       const historyLimit = opts?.historyLimit ?? STELLA_HISTORY_LIMIT;

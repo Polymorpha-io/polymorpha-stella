@@ -11,6 +11,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   DICTIONARY_QUERY_TOP,
+  FUNCTIONALITY_QUERY_TOP,
   STELLA_HISTORY_LIMIT,
   STELLA_MAX_TOKENS,
 } from "@/config/retrieval";
@@ -340,7 +341,7 @@ describe("KnowledgeService dict prefilter + cache", () => {
       includeSystemKnowledge: true,
     });
     expect(embedCalls.texts.length).toBeLessThanOrEqual(
-      1 + DICTIONARY_QUERY_TOP,
+      1 + DICTIONARY_QUERY_TOP + FUNCTIONALITY_QUERY_TOP,
     );
     expect(embedCalls.texts.length).toBeGreaterThan(1);
   });

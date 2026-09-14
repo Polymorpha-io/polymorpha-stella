@@ -19,6 +19,8 @@ export {
 export type { Reranker } from "./knowledge/reranker";
 export * from "./knowledge/providers/DatasetKnowledgeProvider";
 export * from "./knowledge/providers/RelationshipKnowledgeProvider";
+export * from "./knowledge/providers/FunctionalityKnowledgeProvider";
+export * from "./knowledge/functionalities";
 
 export * from "./embeddings/EmbeddingCache";
 export * from "./embeddings/EmbeddingWorker";

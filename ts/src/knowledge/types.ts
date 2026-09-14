@@ -7,7 +7,9 @@ export type KnowledgeKind =
   | "data_representative"
   | "relationship"
   | "note"
-  | "error";
+  | "error"
+  | "functionality"
+  | "guide";
 
 /** Migration from legacy kinds stored in IDB before 2026-08-23 */
 export const LEGACY_KIND_MAP: Record<string, KnowledgeKind> = {
@@ -30,7 +32,9 @@ export function normalizeKind(raw: string): KnowledgeKind {
     raw === "data_representative" ||
     raw === "relationship" ||
     raw === "note" ||
-    raw === "error"
+    raw === "error" ||
+    raw === "functionality" ||
+    raw === "guide"
   )
     return raw;
   return (LEGACY_KIND_MAP[raw] ?? "notebook_output") as KnowledgeKind;

@@ -14,6 +14,8 @@ export const RETRIEVAL_LIMIT_DATA = 12;
 export const DICTIONARY_TERMS_LIMIT = 80;
 /** Dictionary records surviving query prefilter into the embedding stage. */
 export const DICTIONARY_QUERY_TOP = 12;
+/** Functionality records surviving query prefilter into the embedding stage. */
+export const FUNCTIONALITY_QUERY_TOP = 12;
 /** Preceding notebook cells included as context. */
 export const CONTEXT_PRECEDING_CELLS = 5;
 /** Categorical insight cap per RAG pipeline. */
