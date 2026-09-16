@@ -27,8 +27,15 @@ import {
   type ToolCallChunk,
   type ToolExecContext,
 } from "./tools";
+import { openCodeComplete } from "./OpenCodeTransport";
+import { DEFAULT_STELLA_CONFIG } from "../../config/StellaConfig";
+import type {
+  OpenCodeModelRef,
+  StellaChatBackend,
+} from "../../config/StellaConfig";
 import type { KnowledgeKind } from "../../knowledge/types";
 import type { KnowledgeRecord } from "../../knowledge/types";
+import type { ProviderMemo } from "../../knowledge/types";
 import {
   SENTINEL_GUEST,
   SNIPPET_BRAIN_OUTPUT,
@@ -152,6 +159,10 @@ export function selectHistoryWindow<T>(
 export class BrainService {
   private initialized = false;
   private initializedWorkspaceId: string | null = null;
+  private chatBackend: StellaChatBackend = DEFAULT_STELLA_CONFIG.chatBackend;
+  private openCodeBaseUrl: string = DEFAULT_STELLA_CONFIG.openCodeBaseUrl;
+  private openCodeModel: OpenCodeModelRef = DEFAULT_STELLA_CONFIG.openCodeModel;
+  private openCodePassword: string = DEFAULT_STELLA_CONFIG.openCodePassword;
 
   async init(workspaceId: string | null): Promise<void> {
     if (this.initialized && this.initializedWorkspaceId === workspaceId) return;
@@ -162,6 +173,25 @@ export class BrainService {
   reset(): void {
     this.initialized = false;
     this.initializedWorkspaceId = null;
+  }
+
+  /** Chat transport switch (default Groq-direct). OpenCode mode talks to a
+   *  local `opencode serve` instance — local-dev only. Matches the
+   *  setter-injection style of `StellaService.setActiveCell`. */
+  setChatBackend(
+    backend: StellaChatBackend,
+    openCode?: {
+      baseUrl?: string;
+      model?: OpenCodeModelRef;
+      password?: string;
+    },
+  ): void {
+    this.chatBackend = backend;
+    if (openCode?.baseUrl !== undefined)
+      this.openCodeBaseUrl = openCode.baseUrl;
+    if (openCode?.model !== undefined) this.openCodeModel = openCode.model;
+    if (openCode?.password !== undefined)
+      this.openCodePassword = openCode.password;
   }
 
   /**
@@ -269,6 +299,9 @@ export class BrainService {
         : timeoutSignal;
       const ragStart = Date.now();
       let ragHits = 0;
+      // One provider memo for the whole turn: the builder pass and the
+      // main pass below share dataset/relationship/dict/funcs outputs.
+      const providerMemo: ProviderMemo = new Map();
       let contextStr = "";
       try {
         const notebookId = context?.notebookId;
@@ -286,6 +319,7 @@ export class BrainService {
               kinds: context.kinds,
               column: context.column,
               datasetIds: context.datasetIds,
+              memo: providerMemo,
             });
             // Builder's own search is evidence, not waste — merged below.
             notebookEvidence = nbCtx.relevantKnowledge ?? [];
@@ -329,6 +363,7 @@ export class BrainService {
           limit: RETRIEVAL_LIMIT_DATA,
           includeSystemKnowledge: true,
           extraTerms,
+          memo: providerMemo,
         });
         ragHits = kResults.length;
 
@@ -456,32 +491,47 @@ export class BrainService {
       const llmStart = Date.now();
       let toolIters = 0;
       let full = "";
-      for (;;) {
-        const turn = await this.streamTurn(
-          JSON.stringify({ ...baseBody, messages: conversation }),
+      if (this.chatBackend === "opencode") {
+        // Send-and-wait (v1): one stateless turn, no agentic loop — tools
+        // stay disabled server-side (`tools:{}` in the transport).
+        full = await openCodeComplete({
+          baseUrl: this.openCodeBaseUrl,
+          model: this.openCodeModel,
+          password: this.openCodePassword || undefined,
+          system: systemContent,
+          history,
+          content,
           signal,
-          onToken,
-        );
-        full += turn.text;
-        const calls = toolsOn ? turn.toolCalls : [];
-        if (calls.length === 0 || toolIters >= STELLA_MAX_TOOL_ITERS) break;
-        toolIters++;
-        conversation.push({
-          role: "assistant",
-          content: turn.text,
-          tool_calls: calls.map((c) => ({
-            id: c.id,
-            type: "function",
-            function: { name: c.name, arguments: JSON.stringify(c.args) },
-          })),
         });
-        for (const call of calls) {
-          const result = await executeToolCall(execCtx, call);
+        if (full.trim()) onToken(full);
+      } else {
+        for (;;) {
+          const turn = await this.streamTurn(
+            JSON.stringify({ ...baseBody, messages: conversation }),
+            signal,
+            onToken,
+          );
+          full += turn.text;
+          const calls = toolsOn ? turn.toolCalls : [];
+          if (calls.length === 0 || toolIters >= STELLA_MAX_TOOL_ITERS) break;
+          toolIters++;
           conversation.push({
-            role: "tool",
-            tool_call_id: call.id,
-            content: result,
+            role: "assistant",
+            content: turn.text,
+            tool_calls: calls.map((c) => ({
+              id: c.id,
+              type: "function",
+              function: { name: c.name, arguments: JSON.stringify(c.args) },
+            })),
           });
+          for (const call of calls) {
+            const result = await executeToolCall(execCtx, call);
+            conversation.push({
+              role: "tool",
+              tool_call_id: call.id,
+              content: result,
+            });
+          }
         }
       }
 
@@ -493,11 +543,15 @@ export class BrainService {
       emit({
         type: "llm_done",
         ms: Date.now() - llmStart,
-        model: resolvedModel,
+        model:
+          this.chatBackend === "opencode"
+            ? `${this.openCodeModel.providerID}/${this.openCodeModel.modelID}`
+            : resolvedModel,
         toolIters,
         estInputTokens: Math.round(JSON.stringify(conversation).length / 4),
       });
-      if (toolsOn) emit({ type: "tools_done", toolIters });
+      if (toolsOn && this.chatBackend !== "opencode")
+        emit({ type: "tools_done", toolIters });
       onDone(full);
     } catch (err) {
       if (isAbortError(err)) {

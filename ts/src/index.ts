@@ -83,6 +83,13 @@ export {
   type StellaRequestOptions,
 } from "./stella/StellaService";
 export { BrainService, selectHistoryWindow } from "./stella/brain/BrainService";
+export {
+  openCodeComplete,
+  openCodeHealth,
+  foldHistoryForOpenCode,
+  type OpenCodeChatOptions,
+  type OpenCodeHealth,
+} from "./stella/brain/OpenCodeTransport";
 export type {
   StellaContext as BrainStellaContext,
   AnswerStreamingOptions,
