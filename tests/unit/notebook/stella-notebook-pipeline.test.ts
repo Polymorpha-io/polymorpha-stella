@@ -394,30 +394,39 @@ function makeSupersededNotebook(workspaceId = "ws-superseded"): Notebook {
 // Tests
 // ---------------------------------------------------------------------------
 
-beforeAll(() => {
-  // fake fetch for BrainService LLM (capture prompt, return SSE)
-  global.fetch = vi.fn(async (url, opts) => {
-    const body = JSON.parse((opts as { body: string }).body);
-    const sys =
-      body.messages.find((m: { role: string }) => m.role === "system")
-        ?.content ?? "";
-    // expose for assertions via global
-    (
-      globalThis as unknown as { __lastSystemPrompt: string }
-    ).__lastSystemPrompt = sys;
-    const encoder = new TextEncoder();
-    const sse = `data: ${JSON.stringify({ choices: [{ delta: { content: "ok" } }] })}\n\n`;
-    const stream = new ReadableStream({
-      start(c) {
-        c.enqueue(encoder.encode(sse));
-        c.close();
-      },
-    });
-    return new Response(stream, {
+function ocFetchMock(): (url: unknown, opts: unknown) => Promise<Response> {
+  // fake fetch for BrainService LLM (capture system prompt, return OpenCode shape)
+  return async (url, opts) => {
+    const u = String(url);
+    if (u.endsWith("/session")) {
+      return new Response(JSON.stringify({ id: "ses_pipe" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (u.endsWith("/message")) {
+      const body = JSON.parse((opts as { body: string }).body);
+      // expose for assertions via global
+      (
+        globalThis as unknown as { __lastSystemPrompt: string }
+      ).__lastSystemPrompt = (body.system as string) ?? "";
+      return new Response(
+        JSON.stringify({
+          info: { role: "assistant" },
+          parts: [{ type: "text", text: "ok" }],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return new Response("true", {
       status: 200,
-      headers: { "content-type": "text/event-stream" },
+      headers: { "Content-Type": "application/json" },
     });
-  }) as unknown as typeof fetch;
+  };
+}
+
+beforeAll(() => {
+  global.fetch = vi.fn(ocFetchMock()) as unknown as typeof fetch;
 });
 
 beforeEach(async () => {
@@ -425,27 +434,7 @@ beforeEach(async () => {
   memNotebooks.getStore("notebooks").clear();
   vi.clearAllMocks();
   // re-mock fetch capture after clearAllMocks (vi.clearAllMocks clears fetch mock)
-  global.fetch = vi.fn(async (url, opts) => {
-    const body = JSON.parse((opts as { body: string }).body);
-    const sys =
-      body.messages.find((m: { role: string }) => m.role === "system")
-        ?.content ?? "";
-    (
-      globalThis as unknown as { __lastSystemPrompt: string }
-    ).__lastSystemPrompt = sys;
-    const encoder = new TextEncoder();
-    const sse = `data: ${JSON.stringify({ choices: [{ delta: { content: "ok" } }] })}\n\n`;
-    const stream = new ReadableStream({
-      start(c) {
-        c.enqueue(encoder.encode(sse));
-        c.close();
-      },
-    });
-    return new Response(stream, {
-      status: 200,
-      headers: { "content-type": "text/event-stream" },
-    });
-  }) as unknown as typeof fetch;
+  global.fetch = vi.fn(ocFetchMock()) as unknown as typeof fetch;
 });
 
 describe("KnowledgeExtractor — notebook pipeline", () => {

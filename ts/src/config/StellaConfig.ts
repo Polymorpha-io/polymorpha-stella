@@ -1,8 +1,3 @@
-/** Chat LLM transport: Groq-direct via the app worker proxy, or a local
- *  `opencode serve` instance (local-dev only — browsers on hosted pages
- *  cannot reach a user's localhost). */
-export type StellaChatBackend = "groq" | "opencode";
-
 /** Model reference for the OpenCode transport (`POST /session/:id/message`). */
 export interface OpenCodeModelRef {
   providerID: string;
@@ -19,7 +14,6 @@ export interface StellaConfig {
   embedSamplingSeed?: string;
   vectorMaxBytes?: number;
   vectorMaxEntries?: number;
-  chatBackend?: StellaChatBackend;
   /** Base URL of `opencode serve` (default `http://127.0.0.1:4096`). */
   openCodeBaseUrl?: string;
   /** Model used on the OpenCode backend (must be connected server-side). */
@@ -38,7 +32,6 @@ export const DEFAULT_STELLA_CONFIG: Required<StellaConfig> = {
   embedSamplingSeed: "polymorpha-v1",
   vectorMaxBytes: 20 * 1024 * 1024,
   vectorMaxEntries: 10_000,
-  chatBackend: "groq",
   openCodeBaseUrl: "http://127.0.0.1:4096",
   openCodeModel: {
     providerID: "opencode-go",

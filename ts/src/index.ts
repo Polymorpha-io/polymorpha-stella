@@ -96,8 +96,6 @@ export type {
   StellaEvent,
   StellaEventType,
 } from "./stella/brain/BrainService";
-export * from "./stella/brain/tools";
-export * from "./stella/routing";
 export * from "./stella/semanticCache";
 export * from "./stella/brain/Embedder";
 export * from "./stella/models/embeddingModel";

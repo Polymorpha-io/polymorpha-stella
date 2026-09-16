@@ -1,19 +1,18 @@
 /**
- * Stella harness Phase 1 — budgets, abort/retry, dict prefilter, cache
+ * Stella harness Phase 1 — budgets, abort, dict prefilter, cache
  * read-through (`plans/2026-09-13/stella-harness-tokens-rag.md`).
  *
  * Mocks: EmbeddingService → deterministic single-spike 384-d (no WASM);
  * EmbeddingCache → in-memory map (real `buildEmbeddingKey`);
  * dataset/relationship providers → [] (isolates dict+cache behavior);
  * KnowledgeStore/NotebookRepository → memory (mirrors notebook pipeline test);
- * fetch → per-test scripted SSE.
+ * fetch → OpenCode API router (`POST /session`, message, delete).
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   DICTIONARY_QUERY_TOP,
   FUNCTIONALITY_QUERY_TOP,
   STELLA_HISTORY_LIMIT,
-  STELLA_MAX_TOKENS,
 } from "@/config/retrieval";
 import { knowledgeService } from "@/knowledge/KnowledgeService";
 import { knowledgeStore } from "@/knowledge/KnowledgeStore";
@@ -196,47 +195,47 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("BrainService harness budgets", () => {
-  it("caps history at STELLA_HISTORY_LIMIT and sends max_tokens", async () => {
+  it("caps history at STELLA_HISTORY_LIMIT and sends tools-disabled", async () => {
     const svc = new BrainService();
     await svc.init("ws-harness");
     const full = await runBrain(svc, makeHistory(30), "summarize please");
     expect(full).toContain("ok");
-    const { body } = captureBody();
-    // 1 system + anchor(first) + tail(19) + 1 current user
-    expect(body.messages).toHaveLength(1 + STELLA_HISTORY_LIMIT + 1);
-    expect(body.messages[0].role).toBe("system");
-    expect(body.messages[1].content).toBe("history message 0");
-    expect(body.messages[2].content).toBe("history message 11");
-    expect(body.messages[body.messages.length - 1].content).toBe(
-      "summarize please",
-    );
-    expect(body.max_tokens).toBe(STELLA_MAX_TOKENS);
+    const { body } = captureMessageBody();
+    // History window (anchor + tail) is folded into the single user text.
+    const text = body.parts[0].text;
+    expect(text).toContain("history message 0");
+    expect(text).toContain("history message 11");
+    expect(text).not.toContain("history message 10");
+    expect(text).toContain("summarize please");
+    // Safety: Stella must never arm server-side tools.
+    expect(body.tools).toEqual({});
+    expect(body.agent).toBe("general");
+    expect(body.model.providerID).toBe("opencode-go");
   });
 
-  it("honors maxTokens/historyLimit overrides", async () => {
+  it("honors historyLimit overrides", async () => {
     const svc = new BrainService();
     await svc.init("ws-harness");
-    await runBrain(svc, makeHistory(10), "hi", {
-      maxTokens: 50,
-      historyLimit: 2,
-    });
-    const { body } = captureBody();
-    expect(body.max_tokens).toBe(50);
-    expect(body.messages).toHaveLength(1 + 2 + 1);
+    await runBrain(svc, makeHistory(10), "hi", { historyLimit: 2 });
+    const { body } = captureMessageBody();
+    const text = body.parts[0].text;
+    expect(text).toContain("history message 0");
+    expect(text).toContain("history message 9");
+    expect(text).not.toContain("history message 8");
   });
 
-  it("retries once on network error then succeeds", async () => {
+  it("surfaces an unreachable server actionably (no silent retry loop)", async () => {
     let calls = 0;
     scriptFetch(() => {
       calls++;
-      if (calls === 1) throw new TypeError("fetch failed");
-      return sseOk("recovered");
+      throw new TypeError("fetch failed");
     });
     const svc = new BrainService();
     await svc.init("ws-harness");
-    const full = await runBrain(svc, [], "hello retry");
-    expect(full).toContain("recovered");
-    expect(calls).toBe(2);
+    await expect(runBrain(svc, [], "hello retry")).rejects.toThrow(
+      "OpenCode server unreachable",
+    );
+    expect(calls).toBe(1);
   });
 
   it("does not retry on abort and surfaces cancellation", async () => {
@@ -245,7 +244,7 @@ describe("BrainService harness budgets", () => {
       calls++;
       if (opts?.signal?.aborted)
         throw new DOMException("aborted", "AbortError");
-      return sseOk("ok");
+      return ocRouter("ok")(_url);
     });
     const ac = new AbortController();
     ac.abort();
@@ -264,7 +263,7 @@ describe("BrainService harness budgets", () => {
     await service.sendMessage(
       makeHistory(30),
       "via service",
-      "openai/gpt-oss-20b",
+      undefined,
       {
         onToken: () => {},
         onDone: done,
@@ -272,12 +271,14 @@ describe("BrainService harness budgets", () => {
           throw e;
         },
       },
-      { historyLimit: 1, maxTokens: 11 },
+      { historyLimit: 1 },
     );
     expect(done).toHaveBeenCalledOnce();
-    const { body } = captureBody();
-    expect(body.messages).toHaveLength(1 + 1 + 1);
-    expect(body.max_tokens).toBe(11);
+    const { body } = captureMessageBody();
+    const text = body.parts[0].text;
+    expect(text).toContain("history message 0");
+    expect(text).not.toContain("history message 1");
+    expect(text).toContain("via service");
   });
 
   it("forwards harness events through callbacks.onEvent", async () => {
@@ -292,18 +293,8 @@ describe("BrainService harness budgets", () => {
       },
       onEvent: (e: StellaEvent) => events.push(e),
     };
-    await service.sendMessage(
-      [],
-      "event forward probe",
-      "openai/gpt-oss-20b",
-      callbacks,
-    );
-    await service.sendMessage(
-      [],
-      "event forward probe",
-      "openai/gpt-oss-20b",
-      callbacks,
-    );
+    await service.sendMessage([], "event forward probe", undefined, callbacks);
+    await service.sendMessage([], "event forward probe", undefined, callbacks);
     expect(events.some((e) => e.type === "llm_done")).toBe(true);
     expect(events.some((e) => e.type === "cache_hit")).toBe(true);
   });

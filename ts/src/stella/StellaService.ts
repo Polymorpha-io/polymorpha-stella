@@ -1,10 +1,6 @@
-import type { GroqModel, IStellaClient, IStellaMessage } from "./types";
-import { DEFAULT_GROQ_MODEL } from "./types";
+import type { IStellaClient, IStellaMessage, StellaChatModel } from "./types";
 import { BrainService } from "./brain/BrainService";
-import type {
-  OpenCodeModelRef,
-  StellaChatBackend,
-} from "../config/StellaConfig";
+import type { OpenCodeModelRef } from "../config/StellaConfig";
 import type { AnswerStreamingOptions, StellaEvent } from "./brain/BrainService";
 import type { KnowledgeKind } from "../knowledge/types";
 
@@ -84,17 +80,13 @@ export class StellaService implements IStellaClient {
     this.searchScope = scope;
   }
 
-  /** Chat transport switch (default Groq-direct). OpenCode mode talks to a
-   *  local `opencode serve` instance — local-dev only. */
-  setChatBackend(
-    backend: StellaChatBackend,
-    openCode?: {
-      baseUrl?: string;
-      model?: OpenCodeModelRef;
-      password?: string;
-    },
-  ): void {
-    this.brain.setChatBackend(backend, openCode);
+  /** OpenCode endpoint override (default `openCodeBaseUrl` from config). */
+  setOpenCodeTarget(openCode?: {
+    baseUrl?: string;
+    model?: OpenCodeModelRef;
+    password?: string;
+  }): void {
+    this.brain.setOpenCodeTarget(openCode);
   }
 
   private getStellaContext(): StellaContext & {
@@ -116,7 +108,7 @@ export class StellaService implements IStellaClient {
   async sendMessage(
     messages: IStellaMessage[],
     content: string,
-    model: GroqModel = DEFAULT_GROQ_MODEL,
+    model?: StellaChatModel,
     callbacks?: StellaStreamCallbacks,
     opts?: StellaRequestOptions,
   ): Promise<IStellaMessage> {

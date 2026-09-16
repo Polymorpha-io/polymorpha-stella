@@ -19,7 +19,7 @@ import { notebookRepository } from "@/notebook/NotebookRepository";
 
 const spies = vi.hoisted(() => ({ embed: vi.fn() }));
 const memCache = vi.hoisted(() => new Map<string, unknown>());
-const fetchCalls = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+const fetchCalls = vi.hoisted(() => [] as Array<string>);
 
 function normVec(text: string): Float32Array {
   const norm = text.toLowerCase().replace(/[^a-z0-9]+/g, "");
@@ -103,22 +103,32 @@ vi.spyOn(notebookRepository, "getByWorkspace").mockImplementation(
   async () => null,
 );
 
-function sseBody(text: string): Response {
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    start(s) {
-      s.enqueue(
-        encoder.encode(
-          `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`,
-        ),
-      );
-      s.close();
-    },
-  });
-  return new Response(stream, {
-    status: 200,
-    headers: { "content-type": "text/event-stream" },
-  });
+function ocBody(text: string): Response {
+  return new Response(
+    JSON.stringify({
+      info: { role: "assistant" },
+      parts: [{ type: "text", text }],
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+}
+
+function ocRouter(url: string): Promise<Response> {
+  if (url.endsWith("/session")) {
+    return Promise.resolve(
+      new Response(JSON.stringify({ id: "ses_sim" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  }
+  if (url.endsWith("/message")) return Promise.resolve(ocBody("sim answer"));
+  return Promise.resolve(
+    new Response("true", {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }),
+  );
 }
 
 function runBrain(
@@ -132,9 +142,11 @@ function runBrain(
     .then(
       () =>
         new Promise<string>((resolve, reject) => {
-          global.fetch = vi.fn(async () => {
-            fetchCalls.push({});
-            return sseBody("sim answer");
+          global.fetch = vi.fn(async (url: string) => {
+            // One turn = create + message + delete; only message turns
+            // count toward LLM-call assertions below.
+            if (url.endsWith("/message")) fetchCalls.push(url);
+            return ocRouter(url);
           }) as unknown as typeof fetch;
           void svc.answerStreaming(
             [],
@@ -181,7 +193,7 @@ describe("findSimilarReply", () => {
 });
 
 describe("brain similarity cache", () => {
-  it("serves near-duplicate queries from cache (one fetch)", async () => {
+  it("serves near-duplicate queries from cache (one LLM turn)", async () => {
     const first = await runBrain("what is sd?");
     expect(first.full).toContain("sim answer");
     const second = await runBrain("what is sd");

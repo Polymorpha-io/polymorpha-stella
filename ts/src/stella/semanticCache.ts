@@ -5,7 +5,7 @@
  * the caller carries no dynamic context — no active cell, no dataset
  * expert, no dataset ids).
  */
-import type { GroqModel } from "./types";
+import type { StellaChatModel } from "./types";
 import {
   STELLA_SEMANTIC_CACHE_MAX,
   STELLA_SEMANTIC_CACHE_TTL_MS,
@@ -26,7 +26,7 @@ export function normalizeQuery(query: string): string {
 
 export function semanticCacheKey(
   workspaceId: string,
-  model: GroqModel,
+  model: StellaChatModel,
   query: string,
 ): string {
   return `${workspaceId}::${model}::${normalizeQuery(query)}`;

@@ -7,7 +7,7 @@ export interface IStellaClient {
   sendMessage(
     messages: IStellaMessage[],
     content: string,
-    model: GroqModel,
+    model: StellaChatModel,
   ): Promise<IStellaMessage>;
 }
 
@@ -41,11 +41,8 @@ export interface StellaContext {
   question: string;
 }
 
-export type GroqModel = typeof DEFAULT_GROQ_MODEL | typeof GROQ_STRONG_MODEL;
-
-export const DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b" as const;
-/** Strong model for routed complex queries (2× input cost, use sparingly). */
-export const GROQ_STRONG_MODEL = "openai/gpt-oss-120b" as const;
+/** Chat model id as `providerID/modelID` (single OpenCode backend). */
+export type StellaChatModel = string;
 
 export interface DatasetExpertContext {
   fileName: string;
