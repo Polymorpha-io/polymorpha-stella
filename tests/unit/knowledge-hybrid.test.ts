@@ -308,3 +308,22 @@ describe("knowledgeService hybrid integration", () => {
     expect(res.length).toBeLessThanOrEqual(DICTIONARY_QUERY_TOP);
   });
 });
+
+describe("empty-scope guard", () => {
+  it("returns [] without work for an empty workspace id", async () => {
+    const res = await knowledgeService.search("anything at all", {
+      workspaceId: "",
+      includeSystemKnowledge: true,
+    });
+    expect(res).toEqual([]);
+  });
+
+  it("scope all still searches system knowledge", async () => {
+    const res = await knowledgeService.search("p-value", {
+      workspaceId: "",
+      scope: "all",
+      includeSystemKnowledge: true,
+    });
+    expect(res.length).toBeGreaterThan(0);
+  });
+});

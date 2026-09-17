@@ -5,12 +5,13 @@
  * No model downloads: exercises configure/validate/getters, chunk-budget
  * behavior (pure char-window path), and cache-key namespacing only.
  */
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import {
   chunkText,
   configureEmbeddings,
   getEmbeddingDims,
   getEmbeddingModelId,
+  mapWithConcurrency,
   resetEmbeddingsToDefault,
   MODEL_CONTEXT_TOKENS,
 } from "@/stella/models/embeddingModel";
@@ -64,5 +65,46 @@ describe("embedding runtime config", () => {
     expect(before).not.toBe(after);
     expect(after.startsWith(`${BGE_SMALL}:`)).toBe(true);
     expect(before.startsWith(`${MINILM}:`)).toBe(true);
+  });
+});
+
+describe("mapWithConcurrency", () => {
+  it("preserves input order across batches", async () => {
+    const texts = Array.from({ length: 10 }, (_, i) => `text ${i}`);
+    const out = await mapWithConcurrency(texts, async (t) => `done:${t}`, 4);
+    expect(out).toEqual(texts.map((t) => `done:${t}`));
+  });
+
+  it("caps concurrency and passes indices", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const seenIdx: number[] = [];
+    const texts = Array.from({ length: 10 }, (_, i) => i);
+    await mapWithConcurrency(
+      texts,
+      async (n, i) => {
+        seenIdx.push(i);
+        active++;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((r) => setTimeout(r, 5));
+        active--;
+        return n * 2;
+      },
+      4,
+    );
+    expect(maxActive).toBeLessThanOrEqual(4);
+    expect(maxActive).toBeGreaterThan(1);
+    expect(seenIdx).toEqual(texts);
+  });
+
+  it("floors degenerate caps at 1 and rejects on item failure", async () => {
+    const out = await mapWithConcurrency([1, 2], async (n) => n + 1, 0);
+    expect(out).toEqual([2, 3]);
+    await expect(
+      mapWithConcurrency([1, 2, 3], async (n) => {
+        if (n === 2) throw new Error("boom");
+        return n;
+      }),
+    ).rejects.toThrow("boom");
   });
 });

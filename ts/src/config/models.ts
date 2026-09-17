@@ -7,5 +7,7 @@
 export const EMBED_PIPELINE_TASK = "feature-extraction";
 export const EMBED_POOLING = "mean";
 export const EMBED_NORMALIZE = true;
+/** Max concurrent per-text embedding pipelines (WASM thread/memory bound). */
+export const EMBED_BATCH_CONCURRENCY = 4;
 /** Native output dim of the configured MiniLM model (warn if config differs). */
 export const MODEL_NATIVE_DIM = 384;

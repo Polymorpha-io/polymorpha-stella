@@ -196,10 +196,7 @@ export async function buildDataRepresentativeEmbeddings(
   // v1 sampling: 20-30 head/tail + 120-140 stratified quantile-aware + 30-40 categorical/rare
   // For brevity, implement deterministic head/tail + quantile + rare, not full density
   const indices: number[] = [];
-  const headTail = Math.min(
-    HEAD_TAIL_MAX,
-    Math.floor(sampleN * HEAD_TAIL_PCT),
-  );
+  const headTail = Math.min(HEAD_TAIL_MAX, Math.floor(sampleN * HEAD_TAIL_PCT));
   for (let i = 0; i < Math.min(headTail, n); i++) indices.push(i);
   for (let i = Math.max(0, n - headTail); i < n; i++)
     if (!indices.includes(i)) indices.push(i);

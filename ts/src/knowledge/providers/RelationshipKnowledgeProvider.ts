@@ -94,7 +94,10 @@ export class RelationshipKnowledgeProvider implements KnowledgeProvider {
 
         // missingTogether → relationship
         if (missing?.missingTogether && missing.missingTogether.length > 0) {
-          for (const rel of missing.missingTogether.slice(0, RELATIONSHIP_MISSING_TOP)) {
+          for (const rel of missing.missingTogether.slice(
+            0,
+            RELATIONSHIP_MISSING_TOP,
+          )) {
             const text = `Relationship: columns "${rel.a}" and "${rel.b}" tend to be missing together (correlation ${rel.correlation.toFixed(2)}) in dataset ${datasetId}`;
             const sh = await sourceHash(
               `${workspaceId}:${datasetId}:rel:missingTogether:${rel.a}:${rel.b}`,
@@ -130,7 +133,9 @@ export class RelationshipKnowledgeProvider implements KnowledgeProvider {
 
         // duplicate candidateKeys
         if (duplicate?.candidateKeys && duplicate.candidateKeys.length > 0) {
-          const keys = duplicate.candidateKeys.slice(0, RELATIONSHIP_LIST_TOP).join(", ");
+          const keys = duplicate.candidateKeys
+            .slice(0, RELATIONSHIP_LIST_TOP)
+            .join(", ");
           const text = `Relationship: candidate key columns [${keys}] uniquely identify rows in dataset ${datasetId} (duplicate ${duplicate.duplicatePct}% ${duplicate.duplicateRows} rows)`;
           const sh = await sourceHash(
             `${workspaceId}:${datasetId}:rel:candidateKeys:${keys}`,
@@ -163,7 +168,10 @@ export class RelationshipKnowledgeProvider implements KnowledgeProvider {
         }
 
         if (duplicate?.compositeKeys && duplicate.compositeKeys.length > 0) {
-          for (const comp of duplicate.compositeKeys.slice(0, RELATIONSHIP_LIST_TOP)) {
+          for (const comp of duplicate.compositeKeys.slice(
+            0,
+            RELATIONSHIP_LIST_TOP,
+          )) {
             const text = `Relationship: composite key [${comp.join(", ")}] uniquely identifies rows in dataset ${datasetId}`;
             const sh = await sourceHash(
               `${workspaceId}:${datasetId}:rel:composite:${comp.join("_")}`,

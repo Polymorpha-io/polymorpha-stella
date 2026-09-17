@@ -9,6 +9,7 @@ import {
   EMBED_NORMALIZE,
   EMBED_PIPELINE_TASK,
   EMBED_POOLING,
+  EMBED_BATCH_CONCURRENCY,
 } from "../../config/models";
 
 let pipe: FeatureExtractionPipeline | null = null;
@@ -185,25 +186,47 @@ export async function embed(text: string): Promise<Float32Array> {
 
 export async function embedMany(texts: string[]): Promise<Float32Array[]> {
   await loadEmbeddingModel();
-  const out: Float32Array[] = [];
-  for (const t of texts) {
-    const chunks = chunkText(t);
-    if (chunks.length === 1) {
-      out.push(await embed(chunks[0]));
-    } else {
-      // average chunk embeddings for long texts G21 512 window
-      const embs = await Promise.all(chunks.map((c) => embed(c)));
-      const dim = embs[0]?.length ?? activeDim;
-      const avg = new Float32Array(dim);
-      for (const e of embs)
-        for (let i = 0; i < dim; i++) avg[i] += e[i] / embs.length;
-      // re-normalize
-      let norm = 0;
-      for (let i = 0; i < dim; i++) norm += avg[i] * avg[i];
-      norm = Math.sqrt(norm);
-      if (norm > 0) for (let i = 0; i < dim; i++) avg[i] /= norm;
-      out.push(avg);
-    }
+  // Bounded-parallel per-text pipelines (a miss batch of N pays ~N/cap
+  // forwards, not N serial). Order-preserving by construction.
+  return mapWithConcurrency(texts, embedOne, EMBED_BATCH_CONCURRENCY);
+}
+
+/**
+ * Parallel map with a concurrency cap. Results keep input order
+ * (indexed write-back); the first rejection rejects the batch.
+ */
+export async function mapWithConcurrency<T, U>(
+  items: T[],
+  fn: (item: T, index: number) => Promise<U>,
+  cap: number = EMBED_BATCH_CONCURRENCY,
+): Promise<U[]> {
+  const limit = Math.max(1, Math.floor(cap));
+  const out = new Array<U>(items.length);
+  for (let start = 0; start < items.length; start += limit) {
+    const batch = items.slice(start, start + limit);
+    const vectors = await Promise.all(
+      batch.map((item, m) => fn(item, start + m)),
+    );
+    vectors.forEach((v, m) => {
+      out[start + m] = v;
+    });
   }
   return out;
+}
+
+async function embedOne(text: string): Promise<Float32Array> {
+  const chunks = chunkText(text);
+  if (chunks.length === 1) return embed(chunks[0]);
+  // average chunk embeddings for long texts G21 512 window
+  const embs = await Promise.all(chunks.map((c) => embed(c)));
+  const dim = embs[0]?.length ?? activeDim;
+  const avg = new Float32Array(dim);
+  for (const e of embs)
+    for (let i = 0; i < dim; i++) avg[i] += e[i] / embs.length;
+  // re-normalize
+  let norm = 0;
+  for (let i = 0; i < dim; i++) norm += avg[i] * avg[i];
+  norm = Math.sqrt(norm);
+  if (norm > 0) for (let i = 0; i < dim; i++) avg[i] /= norm;
+  return avg;
 }

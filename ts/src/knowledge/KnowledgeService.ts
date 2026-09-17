@@ -3,6 +3,7 @@ import type {
   KnowledgeSearchOptions,
   KnowledgeSearchRequest,
   KnowledgeResult,
+  ProviderMemo,
 } from "./types";
 import { knowledgeStore } from "./KnowledgeStore";
 import {
@@ -107,6 +108,7 @@ function normalizeSearchOpts(
   limit: number;
   query: string;
   extraTerms: string;
+  memo: ProviderMemo;
 } {
   const anyOpts = opts as unknown as Record<string, unknown>;
   const workspaceId = (anyOpts.workspaceId as string) ?? "";
@@ -136,6 +138,7 @@ function normalizeSearchOpts(
       ? RETRIEVAL_LIMIT_DATA
       : RETRIEVAL_LIMIT_DEFAULT);
   const extraTerms = (anyOpts.extraTerms as string | undefined) ?? "";
+  const memo = (anyOpts.memo as ProviderMemo | undefined) ?? new Map();
   return {
     workspaceId,
     notebookId,
@@ -149,6 +152,7 @@ function normalizeSearchOpts(
     limit,
     query,
     extraTerms,
+    memo,
   };
 }
 
@@ -195,8 +199,23 @@ export class KnowledgeService {
   ): Promise<KnowledgeResult[]> {
     const n = normalizeSearchOpts(query, opts);
     const workspaceId = n.workspaceId;
+    // Request-scoped provider memo: the builder pass + the main pass in
+    // one answer turn share provider outputs (no cross-request sharing).
+    const memoGet = async (
+      key: string,
+      load: () => Promise<KnowledgeRecord[]>,
+    ): Promise<KnowledgeRecord[]> => {
+      const hit = n.memo.get(key);
+      if (hit) return hit;
+      const recs = await load().catch(() => [] as KnowledgeRecord[]);
+      n.memo.set(key, recs);
+      return recs;
+    };
 
     let candidates: KnowledgeRecord[] = [];
+    // Empty workspace scope is meaningless work (IDB key "" + provider
+    // passes + embeddings for nothing). "all" scope stays open by design.
+    if (!workspaceId && n.scope !== "all" && !n.notebookId) return [];
     if (n.scope === "all") {
       candidates = await knowledgeStore.getAll().catch(() => []);
     } else if (n.activeCellId) {
@@ -235,12 +254,12 @@ export class KnowledgeService {
     if (workspaceId) {
       try {
         const [dsRecs, relRecs] = await Promise.all([
-          this.datasetProvider
-            .provide(workspaceId)
-            .catch(() => [] as KnowledgeRecord[]),
-          this.relationshipProvider
-            .provide(workspaceId)
-            .catch(() => [] as KnowledgeRecord[]),
+          memoGet(`dataset::${workspaceId}`, () =>
+            this.datasetProvider.provide(workspaceId),
+          ),
+          memoGet(`relationship::${workspaceId}`, () =>
+            this.relationshipProvider.provide(workspaceId),
+          ),
         ]);
         const seen = new Set(candidates.map((c) => c.id));
         for (const r of [...dsRecs, ...relRecs])
@@ -250,10 +269,10 @@ export class KnowledgeService {
 
     if (n.includeSystemKnowledge) {
       const [dict, funcs] = await Promise.all([
-        this.dictProvider.provide(query).catch(() => [] as KnowledgeRecord[]),
-        this.functionalityProvider
-          .provide(workspaceId, undefined, query)
-          .catch(() => [] as KnowledgeRecord[]),
+        memoGet(`dict::${query}`, () => this.dictProvider.provide(query)),
+        memoGet(`funcs::${query}`, () =>
+          this.functionalityProvider.provide(workspaceId, undefined, query),
+        ),
       ]);
       candidates.push(...dict, ...funcs);
     }

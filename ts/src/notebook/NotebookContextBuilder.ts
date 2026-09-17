@@ -1,6 +1,7 @@
 import type { Notebook, NotebookCell } from "./types";
 import type { KnowledgeRecord } from "../knowledge/types";
 import type { KnowledgeKind } from "../knowledge/types";
+import type { ProviderMemo } from "../knowledge/types";
 import { knowledgeService } from "../knowledge/KnowledgeService";
 import { notebookRepository } from "./NotebookRepository";
 import {
@@ -27,6 +28,11 @@ export interface BuildOptions {
   scope?: "workspace" | "all";
   kinds?: KnowledgeKind[];
   column?: string;
+  /**
+   * Request-scoped provider memo shared with the caller's own search
+   * (e.g. BrainService): builder + main pass run providers once.
+   */
+  memo?: ProviderMemo;
 }
 
 export class NotebookContextBuilder {
@@ -41,6 +47,7 @@ export class NotebookContextBuilder {
       scope,
       kinds,
       column,
+      memo,
     } = opts;
 
     let notebook: Notebook | null = null;
@@ -86,6 +93,7 @@ export class NotebookContextBuilder {
         limit: RETRIEVAL_LIMIT_DEFAULT,
         includeSystemKnowledge: true,
         includeSuperseded: false,
+        memo,
       });
       relevantKnowledge = results.map((r) => r.record);
     } catch {

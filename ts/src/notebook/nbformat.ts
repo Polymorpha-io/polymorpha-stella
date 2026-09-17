@@ -122,7 +122,9 @@ function cellToIpynb(cell: NotebookCell): IpynbCell {
       if (o.type === "diff") {
         return {
           output_type: "display_data" as const,
-          data: { "text/plain": JSON.stringify(o.data).slice(0, IPYNB_TRUNCATE) },
+          data: {
+            "text/plain": JSON.stringify(o.data).slice(0, IPYNB_TRUNCATE),
+          },
           metadata: {},
         };
       }
@@ -202,7 +204,10 @@ export function fromIpynb(ipynb: IpynbNotebook, workspaceId: string): Notebook {
         metadata: {},
       })),
       metadata: {
-        title: sourceStr.split("\n")[0]?.replace(/^#\s*/, "").slice(0, SNIPPET_TITLE),
+        title: sourceStr
+          .split("\n")[0]
+          ?.replace(/^#\s*/, "")
+          .slice(0, SNIPPET_TITLE),
       },
       execution: {
         executionCount: (c.execution_count as number | null) ?? null,

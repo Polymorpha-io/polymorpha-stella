@@ -1,53 +1,41 @@
 import type { KnowledgeRecord } from "../types";
 import type { KnowledgeProvider } from "../KnowledgeService";
+import type { RagProfileState } from "../../lib/rag/types";
 import { sourceHash } from "../sourceHash";
-import { chunkText as modelChunkText } from "../../stella/models/embeddingModel";
-import {
-  EMBED_CHUNK_TOKENS,
-  EMBED_PER_COLUMN_LIMIT,
-  EMBED_DATA_SAMPLE_N,
-  EMBED_SAMPLING_SEED,
-  EMBED_SAMPLING_VERSION,
-} from "../../config";
-import {
-  DATASET_TOP_INSIGHTS,
-  DATASET_TOP_QUALITY,
-  SNIPPET_ID,
-  SNIPPET_PROFILE,
-} from "../../config/knowledge";
+import { EMBED_PER_COLUMN_LIMIT } from "../../config";
+import { SNIPPET_ID, SNIPPET_PROFILE } from "../../config/knowledge";
 import {
   buildDatasetProfileEmbedding,
   buildDatasetDescriptionEmbedding,
   buildColumnSemanticEmbeddings,
   buildHeaderOnlyColumnEmbeddings,
-  buildDataRepresentativeEmbeddings,
 } from "../../lib/representation/DatasetRepresentationService";
 import type {
-  DataRepresentativeEmbedding,
   ColumnSemanticEmbedding,
   DatasetProfileEmbedding,
 } from "../../lib/representation/types";
+import type {
+  DatasetKnowledgeProviderInput,
+  DsCtx,
+  ProviderRaw,
+} from "./dataset/model";
+export type { DatasetKnowledgeProviderInput } from "./dataset/model";
+import { resolveProviderState } from "./dataset/input";
+import {
+  buildRepresentativeTexts,
+  ensureSyntheticEntries,
+  pushColumnRecord,
+} from "./dataset/records";
 
 /**
  * DatasetKnowledgeProvider — thin adapter over DatasetRepresentationService + RagStore.
  * Produces KnowledgeRecords for the single semantic retrieval plane.
  * Does not own vector storage; only translates semantic representation → KnowledgeRecord.
  * G24: reuses existing sampling + Rag pipelines, no duplicate engine.
+ *
+ * Split 2026-09-11: input resolution → dataset/input.ts, record assembly →
+ * dataset/records.ts. This class keeps orchestration + public API unchanged.
  */
-
-export type DatasetKnowledgeProviderInput = {
-  ragDatasets: Map<string, import("../../lib/rag/types").RagProfileState>;
-  activeUploadId?: string | null;
-  dataState?: {
-    raw?:
-      | import("../../notebook/types").Notebook
-      | (unknown & { rows?: unknown[]; columns?: unknown[]; fileName?: string })
-      | null;
-    uploadId?: string | null;
-    objective?: string | null;
-  } | null;
-};
-
 export class DatasetKnowledgeProvider implements KnowledgeProvider {
   // Library: GitHub-only, no local fallback. Caller (polymorpha) must inject ragDatasets + dataState.
   // If not injected, try store fallback for unit tests (P2 header-only), else return [].
@@ -64,146 +52,25 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
     injectedOverride?: DatasetKnowledgeProviderInput,
   ): Promise<KnowledgeRecord[]> {
     try {
-      let src = injectedOverride ?? this.injected;
-      // Fallback for unit tests / local polymorpha when not injected — read from stores
-      if (!src) {
-        try {
-          const { useDataStore } = await import("../../store/useDataStore");
-          const { useRagStore } = await import("../../store/useRagStore");
-          const dsState = (
-            useDataStore as unknown as {
-              getState: () => {
-                raw: unknown;
-                uploadId: string | null;
-                objective?: string | null;
-              };
-            }
-          ).getState();
-          const ragStateRaw = (
-            useRagStore as unknown as {
-              getState: () => {
-                byDataset: Map<
-                  string,
-                  import("../../lib/rag/types").RagProfileState
-                >;
-                activeUploadId: string | null;
-              };
-            }
-          ).getState();
-          // Only fallback if we have something to provide
-          if (dsState.raw || ragStateRaw.byDataset.size > 0) {
-            src = {
-              ragDatasets: ragStateRaw.byDataset,
-              activeUploadId:
-                (dsState as unknown as { uploadId: string | null }).uploadId ??
-                null,
-              dataState: {
-                raw: dsState.raw as unknown as
-                  | import("../../notebook/types").Notebook
-                  | (unknown & {
-                      rows?: unknown[];
-                      columns?: unknown[];
-                      fileName?: string;
-                    })
-                  | null,
-                uploadId:
-                  (dsState as unknown as { uploadId: string | null })
-                    .uploadId ?? null,
-                objective:
-                  (dsState as unknown as { objective?: string | null })
-                    .objective ?? null,
-              },
-            } as unknown as DatasetKnowledgeProviderInput;
-          }
-        } catch {
-          // ignore, will return []
-        }
-      }
-      if (!src) return [];
-      const ragState = {
-        byDataset: src.ragDatasets,
-        activeUploadId: src.activeUploadId ?? null,
-      } as unknown as {
-        byDataset: Map<string, import("../../lib/rag/types").RagProfileState>;
-        activeUploadId: string | null;
-      };
-      const dataState = (src.dataState ?? {
-        raw: null,
-        uploadId: null,
-      }) as unknown as {
-        raw:
-          | (import("../../lib/rag/types").RagDatasetProfile & {
-              rows: unknown[];
-              columns: { name: string; type: string }[];
-              fileName: string;
-            })
-          | null;
-        uploadId: string | null;
-        objective?: string | null;
-      };
+      const resolved = await resolveProviderState(
+        injectedOverride,
+        this.injected,
+      );
+      if (!resolved) return [];
+      const { ragState, dataState } = resolved;
       const out: KnowledgeRecord[] = [];
       const now = Date.now();
 
       // Collect datasets: byDataset map + active raw dataset fallback
-      const entries = Array.from(ragState.byDataset.entries());
+      const entries: Array<[string, RagProfileState]> = Array.from(
+        ragState.byDataset.entries(),
+      );
       // Ensure at least one entry if RAG hasn't profiled yet but raw exists
-      let isSyntheticFallback = false;
-      if (entries.length === 0 && dataState.raw) {
-        isSyntheticFallback = true;
-        const fileName = dataState.raw.fileName ?? "dataset.csv";
-        const uploadId = dataState.uploadId ?? fileName;
-        entries.push([
-          uploadId,
-          {
-            profile: {
-              dataset: {
-                rows: dataState.raw.rows.length,
-                cols: dataState.raw.columns.length,
-                fileSizeEstimate: 0,
-                columnCountByType: dataState.raw.columns.reduce(
-                  (acc: Record<string, number>, c) => {
-                    acc[c.type] = (acc[c.type] ?? 0) + 1;
-                    return acc;
-                  },
-                  {},
-                ),
-                duplicateRows: 0,
-                duplicatePct: 0,
-                emptyRows: 0,
-                emptyCols: 0,
-                constantCols: [],
-                format: fileName.split(".").pop() ?? "csv",
-              },
-              perColumn: dataState.raw.columns.map((c) => ({
-                name: c.name,
-                type: c.type,
-                detectedType: c.type,
-                unique: 0,
-                cardinalityRatio: 0,
-                missing: 0,
-                missingPct: 0,
-              })),
-              missing: null,
-              duplicate: null,
-              quality: null,
-            },
-            status: {
-              dataset: "done",
-              perColumn: "done",
-              missing: "pending",
-              duplicate: "pending",
-              quality: "pending",
-            },
-            isProfiling: false,
-            error: null,
-            hash: null,
-            updatedAt: now,
-            uploadId,
-            contentHash: null,
-            sample: null,
-          } as unknown as (typeof entries)[number][1],
-        ]);
-      }
+      const isSyntheticFallback = ensureSyntheticEntries(
+        entries,
+        dataState,
+        now,
+      );
 
       for (const [uploadId, state] of entries) {
         const profile = state.profile;
@@ -221,6 +88,15 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
         const objective =
           (dataState as unknown as { objective?: string | null }).objective ??
           null;
+        const ctx: DsCtx = {
+          workspaceId,
+          datasetId,
+          uploadId,
+          contentHash: String(contentHash),
+          datasetName,
+          now,
+          updatedAt: state.updatedAt ?? now,
+        };
 
         // 1) dataset_profile — synthetic description via template (P2)
         if (datasetForRep) {
@@ -338,33 +214,16 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
             const sh = await sourceHash(
               `${workspaceId}:${datasetId}:col:${col.columnName}:${col.text.slice(0, SNIPPET_ID)}`,
             );
-            out.push({
-              id: `dataset:${datasetId}:col:${col.columnName}`,
-              workspaceId,
-              notebookId: `nb:${workspaceId}`,
-              datasetId,
-              kind: "column_semantic",
-              text: col.text,
-              metadata: {
-                source: "column_semantic",
-                uploadId,
-                contentHash: String(contentHash),
-                column: col.columnName,
-                columns: [col.columnName],
+            pushColumnRecord(
+              out,
+              ctx,
+              col.columnName,
+              col.text,
+              {
                 ...col.metadata,
               },
-              provenance: {
-                workspaceId,
-                datasetIds: [datasetId],
-                uploadId,
-                contentHash: String(contentHash),
-                datasetName,
-                columns: [col.columnName],
-              },
-              sourceHash: sh,
-              createdAt: state.updatedAt ?? now,
-              updatedAt: state.updatedAt ?? now,
-            });
+              sh,
+            );
           }
         } else if (profile.perColumn && profile.perColumn.length > 0) {
           const colArtifacts: ColumnSemanticEmbedding[] =
@@ -379,33 +238,16 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
             const sh = await sourceHash(
               `${workspaceId}:${datasetId}:col:${col.columnName}:${col.text.slice(0, SNIPPET_ID)}`,
             );
-            out.push({
-              id: `dataset:${datasetId}:col:${col.columnName}`,
-              workspaceId,
-              notebookId: `nb:${workspaceId}`,
-              datasetId,
-              kind: "column_semantic",
-              text: col.text,
-              metadata: {
-                source: "column_semantic",
-                uploadId,
-                contentHash: String(contentHash),
-                column: col.columnName,
-                columns: [col.columnName],
+            pushColumnRecord(
+              out,
+              ctx,
+              col.columnName,
+              col.text,
+              {
                 ...col.metadata,
               },
-              provenance: {
-                workspaceId,
-                datasetIds: [datasetId],
-                uploadId,
-                contentHash: String(contentHash),
-                datasetName,
-                columns: [col.columnName],
-              },
-              sourceHash: sh,
-              createdAt: state.updatedAt ?? now,
-              updatedAt: state.updatedAt ?? now,
-            });
+              sh,
+            );
           }
           // remaining beyond limit -> header-only (no sampleCoverage)
           if (profile.perColumn.length > EMBED_PER_COLUMN_LIMIT) {
@@ -415,37 +257,20 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
               const sh = await sourceHash(
                 `${workspaceId}:${datasetId}:col:${col.name}:${text.slice(0, SNIPPET_ID)}`,
               );
-              out.push({
-                id: `dataset:${datasetId}:col:${col.name}`,
-                workspaceId,
-                notebookId: `nb:${workspaceId}`,
-                datasetId,
-                kind: "column_semantic",
+              pushColumnRecord(
+                out,
+                ctx,
+                col.name,
                 text,
-                metadata: {
-                  source: "column_semantic",
-                  uploadId,
-                  contentHash: String(contentHash),
-                  column: col.name,
-                  columns: [col.name],
+                {
                   type: col.type,
                   unique: 0,
                   missingPct: 0,
                   semanticLevel: "schema" as const,
                   profileStatus: "pending" as const,
                 },
-                provenance: {
-                  workspaceId,
-                  datasetIds: [datasetId],
-                  uploadId,
-                  contentHash: String(contentHash),
-                  datasetName,
-                  columns: [col.name],
-                },
-                sourceHash: sh,
-                createdAt: state.updatedAt ?? now,
-                updatedAt: state.updatedAt ?? now,
-              });
+                sh,
+              );
             }
           }
         } else if (datasetForRep) {
@@ -460,114 +285,33 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
             const sh = await sourceHash(
               `${workspaceId}:${datasetId}:col:${col.columnName}:${col.text.slice(0, SNIPPET_ID)}`,
             );
-            out.push({
-              id: `dataset:${datasetId}:col:${col.columnName}`,
-              workspaceId,
-              notebookId: `nb:${workspaceId}`,
-              datasetId,
-              kind: "column_semantic",
-              text: col.text,
-              metadata: {
-                source: "column_semantic",
-                uploadId,
-                contentHash: String(contentHash),
-                column: col.columnName,
-                columns: [col.columnName],
+            pushColumnRecord(
+              out,
+              ctx,
+              col.columnName,
+              col.text,
+              {
                 ...col.metadata,
               },
-              provenance: {
-                workspaceId,
-                datasetIds: [datasetId],
-                uploadId,
-                contentHash: String(contentHash),
-                datasetName,
-                columns: [col.columnName],
-              },
-              sourceHash: sh,
-              createdAt: state.updatedAt ?? now,
-              updatedAt: state.updatedAt ?? now,
-            });
+              sh,
+            );
           }
         }
 
         // 3) data_representative — sample n=200 describes sample, not vector count; chunk serialized rows by 512 tokens
         {
-          let repTexts: string[] = [];
-          let repSample = sampleMeta ?? {
-            n: EMBED_DATA_SAMPLE_N,
-            method: "stratified" as const,
-            coverage: "sample" as const,
-            seed: EMBED_SAMPLING_SEED,
-            strategyVersion: EMBED_SAMPLING_VERSION,
-          };
-          let repRowIndices: number[][] = [];
+          const rep = await buildRepresentativeTexts({
+            dataset: datasetForRep as unknown as ProviderRaw | null,
+            datasetId,
+            uploadId,
+            contentHash: String(contentHash),
+            datasetName,
+            perColumn: profile.perColumn,
+            sampleMeta,
+          });
 
-          if (datasetForRep) {
-            try {
-              const embeddings: DataRepresentativeEmbedding[] =
-                await buildDataRepresentativeEmbeddings(
-                  datasetId,
-                  uploadId,
-                  String(contentHash),
-                  datasetForRep as unknown as import("../../types").Dataset,
-                  profile.perColumn,
-                  {
-                    mode:
-                      repSample.coverage === "exact"
-                        ? "exact"
-                        : "representative",
-                    sampleN: repSample.n ?? EMBED_DATA_SAMPLE_N,
-                  },
-                );
-              if (embeddings.length > 0) {
-                repSample = embeddings[0].metadata.sample;
-                // Serialize per-row texts then chunk by token budget
-                const serialized = embeddings.map((e) => e.text).join("\n");
-                const chunks = modelChunkText(serialized, EMBED_CHUNK_TOKENS);
-                repTexts = chunks;
-                // chunk row indices roughly proportionally
-                const perChunk = Math.ceil(
-                  embeddings.length / Math.max(1, chunks.length),
-                );
-                for (let i = 0; i < chunks.length; i++) {
-                  const slice = embeddings.slice(
-                    i * perChunk,
-                    (i + 1) * perChunk,
-                  );
-                  repRowIndices.push(
-                    slice.flatMap((e) => e.metadata.rowIndices ?? []),
-                  );
-                }
-              }
-            } catch {
-              // ignore, fallback below
-            }
-          }
-
-          // Fallback if no dataset rows available but columns exist — synthesize representatives from column stats
-          if (
-            repTexts.length === 0 &&
-            profile.perColumn &&
-            profile.perColumn.length > 0
-          ) {
-            const synth = `Representative sample for ${datasetName} (${datasetId}): ${profile.perColumn
-              .slice(0, DATASET_TOP_INSIGHTS)
-              .map(
-                (c) =>
-                  `${c.name}(${c.type}) top ${
-                    c.topK
-                      ?.slice(0, DATASET_TOP_QUALITY)
-                      .map((k) => `${k.value}`)
-                      .join(", ") ?? "n/a"
-                  }`,
-              )
-              .join(" | ")}`;
-            repTexts = modelChunkText(synth, EMBED_CHUNK_TOKENS);
-            repRowIndices = repTexts.map(() => []);
-          }
-
-          for (let i = 0; i < repTexts.length; i++) {
-            const text = repTexts[i];
+          for (let i = 0; i < rep.texts.length; i++) {
+            const text = rep.texts[i];
             const sh = await sourceHash(
               `${workspaceId}:${datasetId}:rep:${i}:${text.slice(0, SNIPPET_ID)}`,
             );
@@ -582,7 +326,7 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
                 source: "data_representative",
                 uploadId,
                 contentHash: String(contentHash),
-                sample: repSample,
+                sample: rep.sample,
                 chunkId: `rep-${i}`,
                 columns: profile.perColumn?.map((c) => c.name),
               },
@@ -592,9 +336,9 @@ export class DatasetKnowledgeProvider implements KnowledgeProvider {
                 uploadId,
                 contentHash: String(contentHash),
                 datasetName,
-                sampleCoverage: repSample.coverage,
+                sampleCoverage: rep.sample.coverage,
                 chunkId: `rep-${i}`,
-                rowIndices: repRowIndices[i],
+                rowIndices: rep.rowIndices[i],
                 columns: profile.perColumn?.map((c) => c.name),
               },
               sourceHash: sh,

@@ -27,10 +27,7 @@ import {
   HASH_SHORT_LEN,
 } from "@polymorpha/business-logic";
 import { EXACT_MAX_ROWS } from "../../config/sampling";
-import {
-  RAG_HASH_ROWS,
-  SENTINEL_SINGLE,
-} from "../../config/knowledge";
+import { RAG_HASH_ROWS, SENTINEL_SINGLE } from "../../config/knowledge";
 import type { DataRepresentativeSample } from "./types";
 
 // simple hash for dataset identity (per G21 hashDataset truth, but lightweight here)
@@ -125,7 +122,8 @@ export async function profileDatasetStreaming(
   opts?: { uploadId?: string | null; contentHash?: string | null },
 ): Promise<void> {
   const hash = await hashDatasetLight(dataset);
-  const uploadId = opts?.uploadId ?? resolveUploadId(dataset) ?? SENTINEL_SINGLE;
+  const uploadId =
+    opts?.uploadId ?? resolveUploadId(dataset) ?? SENTINEL_SINGLE;
   const store = useRagStore.getState();
 
   // G23: per-dataset dedup — no global overwrite

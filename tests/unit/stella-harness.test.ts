@@ -28,6 +28,7 @@ import type { IStellaMessage } from "@/stella/types";
 // ---------------------------------------------------------------------------
 
 const embedCalls = vi.hoisted(() => ({ embedMany: 0, texts: [] as string[] }));
+const providerCalls = vi.hoisted(() => ({ dataset: 0, relationship: 0 }));
 const memCache = vi.hoisted(() => new Map<string, unknown>());
 const memKnowledge = vi.hoisted(() => new Map<string, unknown>());
 
@@ -92,6 +93,7 @@ vi.mock("@/embeddings/EmbeddingCache", async () => {
 vi.mock("@/knowledge/providers/DatasetKnowledgeProvider", () => ({
   DatasetKnowledgeProvider: class {
     async provide() {
+      providerCalls.dataset++;
       return [];
     }
   },
@@ -100,6 +102,7 @@ vi.mock("@/knowledge/providers/DatasetKnowledgeProvider", () => ({
 vi.mock("@/knowledge/providers/RelationshipKnowledgeProvider", () => ({
   RelationshipKnowledgeProvider: class {
     async provide() {
+      providerCalls.relationship++;
       return [];
     }
   },
@@ -121,19 +124,31 @@ vi.spyOn(notebookRepository, "getByWorkspace").mockImplementation(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function sseOk(text: string, status = 200): Response {
-  const encoder = new TextEncoder();
-  const sse = `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`;
-  const stream = new ReadableStream({
-    start(c) {
-      c.enqueue(encoder.encode(sse));
-      c.close();
-    },
-  });
-  return new Response(stream, {
+function ocMessage(text: string): unknown {
+  return {
+    info: { role: "assistant" },
+    parts: [
+      { type: "step-start" },
+      { type: "text", text },
+      { type: "step-finish" },
+    ],
+  };
+}
+
+function jsonResponse(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "text/event-stream" },
+    headers: { "Content-Type": "application/json" },
   });
+}
+
+/** Default router: session create → message ("ok") → delete. */
+function ocRouter(replyText = "ok"): (url: string) => Promise<Response> {
+  return async (url: string) => {
+    if (url.endsWith("/session")) return jsonResponse({ id: "ses_test" });
+    if (url.endsWith("/message")) return jsonResponse(ocMessage(replyText));
+    return jsonResponse(true);
+  };
 }
 
 function scriptFetch(
@@ -142,16 +157,22 @@ function scriptFetch(
   global.fetch = vi.fn(impl) as unknown as typeof fetch;
 }
 
-function captureBody(): {
+function captureMessageBody(): {
   body: {
-    messages: Array<{ role: string; content: string }>;
-    max_tokens?: number;
+    model: { providerID: string; modelID: string };
+    agent: string;
+    system: string;
+    tools: unknown;
+    parts: Array<{ type: string; text: string }>;
   };
 } {
   const calls = (global.fetch as unknown as { mock: { calls: unknown[][] } })
     .mock.calls;
-  const last = calls[calls.length - 1][1] as { body: string };
-  return { body: JSON.parse(last.body) };
+  const msg = [...calls]
+    .reverse()
+    .find((c) => String(c[0]).endsWith("/message"));
+  if (!msg) throw new Error("no message POST captured");
+  return { body: JSON.parse((msg[1] as { body: string }).body) };
 }
 
 function makeHistory(n: number): IStellaMessage[] {
@@ -165,7 +186,7 @@ function runBrain(
   svc: BrainService,
   messages: IStellaMessage[],
   content: string,
-  opts?: { signal?: AbortSignal; maxTokens?: number; historyLimit?: number },
+  opts?: { signal?: AbortSignal; historyLimit?: number },
 ): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     void svc.answerStreaming(
@@ -187,7 +208,7 @@ beforeEach(() => {
   memKnowledge.clear();
   embedCalls.embedMany = 0;
   embedCalls.texts = [];
-  scriptFetch(() => sseOk("ok"));
+  scriptFetch(ocRouter());
 });
 
 // ---------------------------------------------------------------------------
@@ -326,7 +347,7 @@ describe("KnowledgeService dict prefilter + cache", () => {
     expect(res[0].record.id).toBe(first.record.id);
   });
 
-  it("embeds at most 1 + DICTIONARY_QUERY_TOP texts per query", async () => {
+  it("embeds a bounded candidate set per query", async () => {
     await knowledgeService.search("What is overfitting in models?", {
       workspaceId: "ws-dict",
       includeSystemKnowledge: true,
@@ -335,6 +356,34 @@ describe("KnowledgeService dict prefilter + cache", () => {
       1 + DICTIONARY_QUERY_TOP + FUNCTIONALITY_QUERY_TOP,
     );
     expect(embedCalls.texts.length).toBeGreaterThan(1);
+  });
+
+  it("shares provider outputs across searches via request memo", async () => {
+    providerCalls.dataset = 0;
+    providerCalls.relationship = 0;
+    const memo = new Map();
+    const opts = {
+      workspaceId: "ws-memo",
+      includeSystemKnowledge: true as const,
+      memo,
+    };
+    await knowledgeService.search("memo probe query", opts);
+    await knowledgeService.search("memo probe query", opts);
+    expect(providerCalls.dataset).toBe(1);
+    expect(providerCalls.relationship).toBe(1);
+  });
+
+  it("runs providers per search without a shared memo", async () => {
+    providerCalls.dataset = 0;
+    await knowledgeService.search("memo probe query", {
+      workspaceId: "ws-memo",
+      includeSystemKnowledge: true,
+    });
+    await knowledgeService.search("memo probe query", {
+      workspaceId: "ws-memo",
+      includeSystemKnowledge: true,
+    });
+    expect(providerCalls.dataset).toBe(2);
   });
 
   it("repeat query hits the cache — no model re-embed", async () => {
